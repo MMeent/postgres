@@ -82,15 +82,27 @@ CatalogIndexInsert(CatalogIndexState indstate, HeapTuple heapTuple)
 	IndexInfo **indexInfoArray;
 	Datum		values[INDEX_MAX_KEYS];
 	bool		isnull[INDEX_MAX_KEYS];
+	bool		onlySummarized = false;
 
 	/*
-	 * HOT update does not require index inserts. But with asserts enabled we
-	 * want to check that it'd be legal to currently insert into the
-	 * table/index.
+	 * HOT updates may be a 'summary update', for which we need to make
+	 * sure to update summarized indexes.
 	 */
+	if (HeapTupleHeaderIsHOTWithSummaryUpdate(heapTuple->t_data))
+	{
+		HeapTupleHeaderClearSummaryUpdate(heapTuple->t_data);
+		onlySummarized = true;
+	}
 #ifndef USE_ASSERT_CHECKING
-	if (HeapTupleIsHeapOnly(heapTuple))
+	else if (HeapTupleIsHeapOnly(heapTuple))
+	{
+		/*
+		 * Normal HOT update does not require index inserts. But with
+		 * asserts enabled we want to check that it'd be legal to
+		 * currently insert into the table/index.
+		 */
 		return;
+	}
 #endif
 
 	/*
@@ -135,12 +147,19 @@ CatalogIndexInsert(CatalogIndexState indstate, HeapTuple heapTuple)
 
 		/* see earlier check above */
 #ifdef USE_ASSERT_CHECKING
-		if (HeapTupleIsHeapOnly(heapTuple))
+		if (HeapTupleIsHeapOnly(heapTuple) && !onlySummarized)
 		{
 			Assert(!ReindexIsProcessingIndex(RelationGetRelid(index)));
 			continue;
 		}
 #endif							/* USE_ASSERT_CHECKING */
+
+		/*
+		 * Skip insertions into non-summarizing indexes if we only need
+		 * to update summarizing indexes
+		 */
+		if (onlySummarized && !indexInfo->ii_Summarizing)
+			continue;
 
 		/*
 		 * FormIndexDatum fills in its values and isnull parameters with the

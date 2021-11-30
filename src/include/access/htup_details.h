@@ -292,6 +292,16 @@ struct HeapTupleHeaderData
 #define HEAP_TUPLE_HAS_MATCH	HEAP_ONLY_TUPLE /* tuple has a join match */
 
 /*
+ * HEAP_TUPLE_SUMMARIZING_UPDATED is a temporary flag used to signal that
+ * of the indexed columns, only columns used in summarizing indexes were
+ * updated. It is only used on the in-memory newly inserted updated tuple,
+ * which can't have been HOT updated at this point, so this should never
+ * pose an issue.
+ */
+#define HEAP_TUPLE_SUMMARIZING_UPDATED	HEAP_HOT_UPDATED
+
+
+/*
  * HeapTupleHeader accessor macros
  *
  * Note: beware of multiple evaluations of "tup" argument.  But the Set
@@ -541,6 +551,25 @@ StaticAssertDecl(MaxOffsetNumber < SpecTokenOffsetNumber,
 
 #define HeapTupleHeaderHasExternal(tup) \
 		(((tup)->t_infomask & HEAP_HASEXTERNAL) != 0)
+
+
+#define HeapTupleHeaderIsHOTWithSummaryUpdate(tup) \
+( \
+	((tup)->t_infomask2 & HEAP_ONLY_TUPLE) != 0 && \
+	((tup)->t_infomask2 & HEAP_TUPLE_SUMMARIZING_UPDATED) != 0 \
+)
+
+#define HeapTupleHeaderSetSummaryUpdate(tup) \
+( \
+	(tup)->t_infomask2 |= HEAP_TUPLE_SUMMARIZING_UPDATED \
+)
+
+#define HeapTupleHeaderClearSummaryUpdate(tup) \
+( \
+	(tup)->t_infomask2 &= ~HEAP_TUPLE_SUMMARIZING_UPDATED \
+)
+
+
 
 
 /*

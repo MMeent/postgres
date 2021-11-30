@@ -314,7 +314,7 @@ static TM_Result
 heapam_tuple_update(Relation relation, ItemPointer otid, TupleTableSlot *slot,
 					CommandId cid, Snapshot snapshot, Snapshot crosscheck,
 					bool wait, TM_FailureData *tmfd,
-					LockTupleMode *lockmode, bool *update_indexes)
+					LockTupleMode *lockmode, TU_UpdateIndexes *update_indexes)
 {
 	bool		shouldFree = true;
 	HeapTuple	tuple = ExecFetchSlotHeapTuple(slot, true, &shouldFree);
@@ -334,9 +334,24 @@ heapam_tuple_update(Relation relation, ItemPointer otid, TupleTableSlot *slot,
 	 * Note: heap_update returns the tid (location) of the new tuple in the
 	 * t_self field.
 	 *
-	 * If it's a HOT update, we mustn't insert new index entries.
+	 * If it is a HOT update, we must not insert new index entries on all index.
+	 * However, if it updates columns in summarized indexes, we must still update
+	 * those summarizing indexes, lest we fail to update those summaries and
+	 * get incorrect results (for example, minmax bounds of the block may change).
 	 */
-	*update_indexes = result == TM_Ok && !HeapTupleIsHeapOnly(tuple);
+	if (result != TM_Ok)
+		*update_indexes = TUUI_None;
+	else if (!HeapTupleIsHeapOnly(tuple))
+		*update_indexes = TUUI_All;
+	else if (HeapTupleHeaderIsHOTWithSummaryUpdate(tuple->t_data))
+	{
+		*update_indexes = TUUI_Summarizing;
+
+		/* Clear temporary bits */
+		HeapTupleHeaderClearSummaryUpdate(tuple->t_data);
+	}
+	else
+		*update_indexes = TUUI_None;
 
 	if (shouldFree)
 		pfree(tuple);
