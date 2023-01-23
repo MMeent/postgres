@@ -134,11 +134,11 @@ btree_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-btree_identify(uint8 info)
+btree_identify(uint8 rmgrinfo)
 {
 	const char *id = NULL;
 
-	switch (info & ~XLR_INFO_MASK)
+	switch (rmgrinfo)
 	{
 		case XLOG_BTREE_INSERT_LEAF:
 			id = "INSERT_LEAF";

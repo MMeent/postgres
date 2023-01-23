@@ -43,9 +43,9 @@ logicalmsg_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-logicalmsg_identify(uint8 info)
+logicalmsg_identify(uint8 rmgrinfo)
 {
-	if ((info & ~XLR_INFO_MASK) == XLOG_LOGICAL_MESSAGE)
+	if (rmgrinfo == XLOG_LOGICAL_MESSAGE)
 		return "MESSAGE";
 
 	return NULL;

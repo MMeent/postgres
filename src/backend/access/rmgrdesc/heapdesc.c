@@ -302,11 +302,11 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-heap_identify(uint8 info)
+heap_identify(uint8 rmgrinfo)
 {
 	const char *id = NULL;
 
-	switch (info & ~XLR_INFO_MASK)
+	switch (rmgrinfo)
 	{
 		case XLOG_HEAP_INSERT:
 			id = "INSERT";
@@ -347,11 +347,11 @@ heap_identify(uint8 info)
 }
 
 const char *
-heap2_identify(uint8 info)
+heap2_identify(uint8 rmgrinfo)
 {
 	const char *id = NULL;
 
-	switch (info & ~XLR_INFO_MASK)
+	switch (rmgrinfo)
 	{
 		case XLOG_HEAP2_PRUNE:
 			id = "PRUNE";

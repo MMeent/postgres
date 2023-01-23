@@ -122,11 +122,11 @@ hash_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-hash_identify(uint8 info)
+hash_identify(uint8 rmgrinfo)
 {
 	const char *id = NULL;
 
-	switch (info & ~XLR_INFO_MASK)
+	switch (rmgrinfo)
 	{
 		case XLOG_HASH_INIT_META_PAGE:
 			id = "INIT_META_PAGE";

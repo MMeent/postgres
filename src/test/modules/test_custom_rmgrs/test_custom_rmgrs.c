@@ -103,9 +103,9 @@ testcustomrmgrs_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-testcustomrmgrs_identify(uint8 info)
+testcustomrmgrs_identify(uint8 rmgrinfo)
 {
-	if ((info & ~XLR_INFO_MASK) == XLOG_TEST_CUSTOM_RMGRS_MESSAGE)
+	if (rmgrinfo == XLOG_TEST_CUSTOM_RMGRS_MESSAGE)
 		return "TEST_CUSTOM_RMGRS_MESSAGE";
 
 	return NULL;

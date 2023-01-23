@@ -128,11 +128,11 @@ spg_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-spg_identify(uint8 info)
+spg_identify(uint8 rmgrinfo)
 {
 	const char *id = NULL;
 
-	switch (info & ~XLR_INFO_MASK)
+	switch (rmgrinfo)
 	{
 		case XLOG_SPGIST_ADD_LEAF:
 			id = "ADD_LEAF";

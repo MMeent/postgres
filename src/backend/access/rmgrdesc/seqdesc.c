@@ -31,11 +31,11 @@ seq_desc(StringInfo buf, XLogReaderState *record)
 }
 
 const char *
-seq_identify(uint8 info)
+seq_identify(uint8 rmgrinfo)
 {
 	const char *id = NULL;
 
-	switch (info & ~XLR_INFO_MASK)
+	switch (rmgrinfo)
 	{
 		case XLOG_SEQ_LOG:
 			id = "LOG";
