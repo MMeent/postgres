@@ -20,7 +20,7 @@ void
 brin_desc(StringInfo buf, XLogReaderState *record)
 {
 	char	   *rec = XLogRecGetData(record);
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 
 	info &= XLOG_BRIN_OPMASK;
 	if (info == XLOG_BRIN_CREATE_INDEX)

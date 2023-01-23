@@ -1995,7 +1995,7 @@ ApplyWalRecord(XLogReaderState *xlogreader, XLogRecord *record, TimeLineID *repl
 static void
 xlogrecovery_redo(XLogReaderState *record, TimeLineID replayTLI)
 {
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 	XLogRecPtr	lsn = record->EndRecPtr;
 
 	Assert(XLogRecGetRmid(record) == RM_XLOG_ID);
@@ -2213,7 +2213,7 @@ void
 xlog_outdesc(StringInfo buf, XLogReaderState *record)
 {
 	RmgrData	rmgr = GetRmgr(XLogRecGetRmid(record));
-	uint8		info = XLogRecGetInfo(record);
+	uint8		info = XLogRecGetRmgrInfo(record);
 	const char *id;
 
 	appendStringInfoString(buf, rmgr.rm_name);
@@ -2221,7 +2221,7 @@ xlog_outdesc(StringInfo buf, XLogReaderState *record)
 
 	id = rmgr.rm_identify(info);
 	if (id == NULL)
-		appendStringInfo(buf, "UNKNOWN (%X): ", info & ~XLR_INFO_MASK);
+		appendStringInfo(buf, "UNKNOWN (%X): ", info);
 	else
 		appendStringInfo(buf, "%s: ", id);
 
@@ -2341,7 +2341,7 @@ checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI, TimeLineID prevTLI,
 static bool
 getRecordTimestamp(XLogReaderState *record, TimestampTz *recordXtime)
 {
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 	uint8		xact_info = info & XLOG_XACT_OPMASK;
 	uint8		rmid = XLogRecGetRmid(record);
 
@@ -2535,7 +2535,7 @@ recoveryStopsBefore(XLogReaderState *record)
 	if (XLogRecGetRmid(record) != RM_XACT_ID)
 		return false;
 
-	xact_info = XLogRecGetInfo(record) & XLOG_XACT_OPMASK;
+	xact_info = XLogRecGetRmgrInfo(record);
 
 	if (xact_info == XLOG_XACT_COMMIT)
 	{
@@ -2548,7 +2548,7 @@ recoveryStopsBefore(XLogReaderState *record)
 		xl_xact_parsed_commit parsed;
 
 		isCommit = true;
-		ParseCommitRecord(XLogRecGetInfo(record),
+		ParseCommitRecord(XLogRecGetRmgrInfo(record),
 						  xlrec,
 						  &parsed);
 		recordXid = parsed.twophase_xid;
@@ -2564,7 +2564,7 @@ recoveryStopsBefore(XLogReaderState *record)
 		xl_xact_parsed_abort parsed;
 
 		isCommit = false;
-		ParseAbortRecord(XLogRecGetInfo(record),
+		ParseAbortRecord(XLogRecGetRmgrInfo(record),
 						 xlrec,
 						 &parsed);
 		recordXid = parsed.twophase_xid;
@@ -2653,7 +2653,7 @@ recoveryStopsAfter(XLogReaderState *record)
 	if (!ArchiveRecoveryRequested)
 		return false;
 
-	info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	info = XLogRecGetRmgrInfo(record);
 	rmid = XLogRecGetRmid(record);
 
 	/*
@@ -2721,7 +2721,7 @@ recoveryStopsAfter(XLogReaderState *record)
 			xl_xact_commit *xlrec = (xl_xact_commit *) XLogRecGetData(record);
 			xl_xact_parsed_commit parsed;
 
-			ParseCommitRecord(XLogRecGetInfo(record),
+			ParseCommitRecord(XLogRecGetRmgrInfo(record),
 							  xlrec,
 							  &parsed);
 			recordXid = parsed.twophase_xid;
@@ -2731,7 +2731,7 @@ recoveryStopsAfter(XLogReaderState *record)
 			xl_xact_abort *xlrec = (xl_xact_abort *) XLogRecGetData(record);
 			xl_xact_parsed_abort parsed;
 
-			ParseAbortRecord(XLogRecGetInfo(record),
+			ParseAbortRecord(XLogRecGetRmgrInfo(record),
 							 xlrec,
 							 &parsed);
 			recordXid = parsed.twophase_xid;
@@ -2925,7 +2925,7 @@ recoveryApplyDelay(XLogReaderState *record)
 	if (XLogRecGetRmid(record) != RM_XACT_ID)
 		return false;
 
-	xact_info = XLogRecGetInfo(record) & XLOG_XACT_OPMASK;
+	xact_info = XLogRecGetRmgrInfo(record) & XLOG_XACT_OPMASK;
 
 	if (xact_info != XLOG_XACT_COMMIT &&
 		xact_info != XLOG_XACT_COMMIT_PREPARED)

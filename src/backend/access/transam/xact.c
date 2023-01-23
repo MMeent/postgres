@@ -6184,7 +6184,7 @@ xact_redo_abort(xl_xact_parsed_abort *parsed, TransactionId xid,
 void
 xact_redo(XLogReaderState *record)
 {
-	uint8		info = XLogRecGetInfo(record) & XLOG_XACT_OPMASK;
+	uint8		info = XLogRecGetRmgrInfo(record) & XLOG_XACT_OPMASK;
 
 	/* Backup blocks are not used in xact records */
 	Assert(!XLogRecHasAnyBlockRefs(record));
@@ -6194,7 +6194,7 @@ xact_redo(XLogReaderState *record)
 		xl_xact_commit *xlrec = (xl_xact_commit *) XLogRecGetData(record);
 		xl_xact_parsed_commit parsed;
 
-		ParseCommitRecord(XLogRecGetInfo(record), xlrec, &parsed);
+		ParseCommitRecord(XLogRecGetRmgrInfo(record), xlrec, &parsed);
 		xact_redo_commit(&parsed, XLogRecGetXid(record),
 						 record->EndRecPtr, XLogRecGetOrigin(record));
 	}
@@ -6203,7 +6203,7 @@ xact_redo(XLogReaderState *record)
 		xl_xact_commit *xlrec = (xl_xact_commit *) XLogRecGetData(record);
 		xl_xact_parsed_commit parsed;
 
-		ParseCommitRecord(XLogRecGetInfo(record), xlrec, &parsed);
+		ParseCommitRecord(XLogRecGetRmgrInfo(record), xlrec, &parsed);
 		xact_redo_commit(&parsed, parsed.twophase_xid,
 						 record->EndRecPtr, XLogRecGetOrigin(record));
 
@@ -6217,7 +6217,7 @@ xact_redo(XLogReaderState *record)
 		xl_xact_abort *xlrec = (xl_xact_abort *) XLogRecGetData(record);
 		xl_xact_parsed_abort parsed;
 
-		ParseAbortRecord(XLogRecGetInfo(record), xlrec, &parsed);
+		ParseAbortRecord(XLogRecGetRmgrInfo(record), xlrec, &parsed);
 		xact_redo_abort(&parsed, XLogRecGetXid(record),
 						record->EndRecPtr, XLogRecGetOrigin(record));
 	}
@@ -6226,7 +6226,7 @@ xact_redo(XLogReaderState *record)
 		xl_xact_abort *xlrec = (xl_xact_abort *) XLogRecGetData(record);
 		xl_xact_parsed_abort parsed;
 
-		ParseAbortRecord(XLogRecGetInfo(record), xlrec, &parsed);
+		ParseAbortRecord(XLogRecGetRmgrInfo(record), xlrec, &parsed);
 		xact_redo_abort(&parsed, parsed.twophase_xid,
 						record->EndRecPtr, XLogRecGetOrigin(record));
 

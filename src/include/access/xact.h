@@ -519,9 +519,9 @@ extern void xact_desc(StringInfo buf, XLogReaderState *record);
 extern const char *xact_identify(uint8 info);
 
 /* also in xactdesc.c, so they can be shared between front/backend code */
-extern void ParseCommitRecord(uint8 info, xl_xact_commit *xlrec, xl_xact_parsed_commit *parsed);
-extern void ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_abort *parsed);
-extern void ParsePrepareRecord(uint8 info, xl_xact_prepare *xlrec, xl_xact_parsed_prepare *parsed);
+extern void ParseCommitRecord(uint8 rmgrinfo, xl_xact_commit *xlrec, xl_xact_parsed_commit *parsed);
+extern void ParseAbortRecord(uint8 rmgrinfo, xl_xact_abort *xlrec, xl_xact_parsed_abort *parsed);
+extern void ParsePrepareRecord(uint8 rmgrinfo, xl_xact_prepare *xlrec, xl_xact_parsed_prepare *parsed);
 
 extern void EnterParallelMode(void);
 extern void ExitParallelMode(void);

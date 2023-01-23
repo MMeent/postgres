@@ -79,7 +79,7 @@ XLogRecStoreStats(XLogStats *stats, XLogReaderState *record)
 	 * RmgrId).
 	 */
 
-	recid = XLogRecGetInfo(record) >> 4;
+	recid = XLogRecGetRmgrInfo(record) >> 4;
 
 	/*
 	 * XACT records need to be handled differently. Those records use the

@@ -21,7 +21,7 @@ void
 tblspc_desc(StringInfo buf, XLogReaderState *record)
 {
 	char	   *rec = XLogRecGetData(record);
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 
 	if (info == XLOG_TBLSPC_CREATE)
 	{

@@ -80,7 +80,7 @@ LogLogicalMessage(const char *prefix, const char *message, size_t size,
 void
 logicalmsg_redo(XLogReaderState *record)
 {
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 
 	if (info != XLOG_LOGICAL_MESSAGE)
 		elog(PANIC, "logicalmsg_redo: unknown op code %u", info);

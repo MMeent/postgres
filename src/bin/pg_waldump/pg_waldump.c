@@ -544,7 +544,7 @@ XLogDumpDisplayRecord(XLogDumpConfig *config, XLogReaderState *record)
 	const RmgrDescData *desc = GetRmgrDesc(XLogRecGetRmid(record));
 	uint32		rec_len;
 	uint32		fpi_len;
-	uint8		info = XLogRecGetInfo(record);
+	uint8		info = XLogRecGetRmgrInfo(record);
 	XLogRecPtr	xl_prev = XLogRecGetPrev(record);
 	StringInfoData s;
 
@@ -559,7 +559,7 @@ XLogDumpDisplayRecord(XLogDumpConfig *config, XLogReaderState *record)
 
 	id = desc->rm_identify(info);
 	if (id == NULL)
-		printf("desc: UNKNOWN (%x) ", info & ~XLR_INFO_MASK);
+		printf("desc: UNKNOWN (%x) ", info);
 	else
 		printf("desc: %s ", id);
 

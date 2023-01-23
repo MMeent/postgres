@@ -9255,7 +9255,7 @@ heap_xlog_insert(XLogReaderState *record)
 	 * If we inserted the first and only tuple on the page, re-initialize the
 	 * page from scratch.
 	 */
-	if (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE)
+	if (XLogRecGetRmgrInfo(record) & XLOG_HEAP_INIT_PAGE)
 	{
 		buffer = XLogInitBufferForRedo(record, 0);
 		page = BufferGetPage(buffer);
@@ -9349,7 +9349,7 @@ heap_xlog_multi_insert(XLogReaderState *record)
 	uint32		newlen;
 	Size		freespace = 0;
 	int			i;
-	bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
+	bool		isinit = (XLogRecGetRmgrInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
 	XLogRedoAction action;
 
 	/*
@@ -9597,7 +9597,7 @@ heap_xlog_update(XLogReaderState *record, bool hot_update)
 		nbuffer = obuffer;
 		newaction = oldaction;
 	}
-	else if (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE)
+	else if (XLogRecGetRmgrInfo(record) & XLOG_HEAP_INIT_PAGE)
 	{
 		nbuffer = XLogInitBufferForRedo(record, 0);
 		page = (Page) BufferGetPage(nbuffer);
@@ -9961,7 +9961,7 @@ heap_xlog_inplace(XLogReaderState *record)
 void
 heap_redo(XLogReaderState *record)
 {
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 
 	/*
 	 * These operations don't overwrite MVCC data so no conflict processing is
@@ -10007,7 +10007,7 @@ heap_redo(XLogReaderState *record)
 void
 heap2_redo(XLogReaderState *record)
 {
-	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetRmgrInfo(record);
 
 	switch (info & XLOG_HEAP_OPMASK)
 	{
