@@ -632,7 +632,7 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 		if (record != NULL)
 		{
 			memcpy(&checkPoint, XLogRecGetData(xlogreader), sizeof(CheckPoint));
-			wasShutdown = ((record->xl_info & ~XLR_INFO_MASK) == XLOG_CHECKPOINT_SHUTDOWN);
+			wasShutdown = (record->xl_rmgrinfo == XLOG_CHECKPOINT_SHUTDOWN);
 			ereport(DEBUG1,
 					(errmsg_internal("checkpoint record is at %X/%X",
 									 LSN_FORMAT_ARGS(CheckPointLoc))));
@@ -786,7 +786,7 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 					(errmsg("could not locate a valid checkpoint record")));
 		}
 		memcpy(&checkPoint, XLogRecGetData(xlogreader), sizeof(CheckPoint));
-		wasShutdown = ((record->xl_info & ~XLR_INFO_MASK) == XLOG_CHECKPOINT_SHUTDOWN);
+		wasShutdown = (record->xl_rmgrinfo == XLOG_CHECKPOINT_SHUTDOWN);
 	}
 
 	/*
@@ -1857,7 +1857,7 @@ ApplyWalRecord(XLogReaderState *xlogreader, XLogRecord *record, TimeLineID *repl
 	{
 		TimeLineID	newReplayTLI = *replayTLI;
 		TimeLineID	prevReplayTLI = *replayTLI;
-		uint8		info = record->xl_info & ~XLR_INFO_MASK;
+		uint8		info = record->xl_rmgrinfo;
 
 		if (info == XLOG_CHECKPOINT_SHUTDOWN)
 		{
@@ -3992,12 +3992,12 @@ ReadCheckpointRecord(XLogPrefetcher *xlogprefetcher, XLogRecPtr RecPtr,
 				(errmsg("invalid resource manager ID in checkpoint record")));
 		return NULL;
 	}
-	info = record->xl_info & ~XLR_INFO_MASK;
+	info = record->xl_rmgrinfo;
 	if (info != XLOG_CHECKPOINT_SHUTDOWN &&
 		info != XLOG_CHECKPOINT_ONLINE)
 	{
 		ereport(LOG,
-				(errmsg("invalid xl_info in checkpoint record")));
+				(errmsg("invalid xl_rmgrinfo in checkpoint record")));
 		return NULL;
 	}
 	if (record->xl_tot_len != SizeOfXLogRecord + SizeOfXLogRecordDataHeaderShort + sizeof(CheckPoint))

@@ -738,9 +738,9 @@ XLogInsertRecord(XLogRecData *rdata,
 	pg_crc32c	rdata_crc;
 	bool		inserted;
 	XLogRecord *rechdr = (XLogRecord *) rdata->data;
-	uint8		info = rechdr->xl_info & ~XLR_INFO_MASK;
+	uint8		rmgrinfo = rechdr->xl_rmgrinfo;
 	bool		isLogSwitch = (rechdr->xl_rmid == RM_XLOG_ID &&
-							   info == XLOG_SWITCH);
+							   rmgrinfo == XLOG_SWITCH);
 	XLogRecPtr	StartPos;
 	XLogRecPtr	EndPos;
 	bool		prevDoPageWrites = doPageWrites;
@@ -4730,7 +4730,8 @@ BootStrapXLOG(void)
 	record->xl_prev = 0;
 	record->xl_xid = InvalidTransactionId;
 	record->xl_tot_len = SizeOfXLogRecord + SizeOfXLogRecordDataHeaderShort + sizeof(checkPoint);
-	record->xl_info = XLOG_CHECKPOINT_SHUTDOWN;
+	record->xl_info = 0;
+	record->xl_rmgrinfo = XLOG_CHECKPOINT_SHUTDOWN;
 	record->xl_rmid = RM_XLOG_ID;
 	recptr += SizeOfXLogRecord;
 	/* fill the XLogRecordDataHeaderShort struct */

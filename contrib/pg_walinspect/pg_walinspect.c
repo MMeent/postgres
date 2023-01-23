@@ -697,7 +697,7 @@ GetXLogSummaryStats(XLogStats *stats, ReturnSetInfo *rsinfo,
 		{
 			int			rj;
 
-			for (rj = 0; rj < MAX_XLINFO_TYPES; rj++)
+			for (rj = 0; rj < MAX_XLRMGRINFO_TYPES; rj++)
 			{
 				const char *id;
 
@@ -712,10 +712,9 @@ GetXLogSummaryStats(XLogStats *stats, ReturnSetInfo *rsinfo,
 
 				old_cxt = MemoryContextSwitchTo(tmp_cxt);
 
-				/* the upper four bits in xl_info are the rmgr's */
-				id = desc.rm_identify(rj << 4);
+				id = desc.rm_identify(rj);
 				if (id == NULL)
-					id = psprintf("UNKNOWN (%x)", rj << 4);
+					id = psprintf("UNKNOWN (%x)", rj);
 
 				FillXLogStatsRow(psprintf("%s/%s", desc.rm_name, id), count,
 								 total_count, rec_len, total_rec_len, fpi_len,

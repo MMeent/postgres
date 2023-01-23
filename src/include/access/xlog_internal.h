@@ -448,7 +448,7 @@ static inline Size XLogReadLength(uint32 *length, XLogSizeClass sizeClass,
  * This struct must be kept in sync with the PG_RMGR definition in
  * rmgr.c.
  *
- * rm_identify must return a name for the record based on xl_info (without
+ * rm_identify must return a name for the record based on xl_rmgrinfo (without
  * reference to the rmid). For example, XLOG_BTREE_VACUUM would be named
  * "VACUUM". rm_desc can then be called to obtain additional detail for the
  * record, if available (e.g. the last block).

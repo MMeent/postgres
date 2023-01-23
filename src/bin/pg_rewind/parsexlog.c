@@ -438,9 +438,9 @@ extractPageInfo(XLogReaderState *record)
 		 * track that change.
 		 */
 		pg_fatal("WAL record modifies a relation, but record type is not recognized: "
-				 "lsn: %X/%X, rmid: %d, rmgr: %s, info: %02X",
+				 "lsn: %X/%X, rmid: %d, rmgr: %s, info: %02X, rmgrinfo: %02X",
 				 LSN_FORMAT_ARGS(record->ReadRecPtr),
-				 rmid, RmgrName(rmid), info | rminfo);
+				 rmid, RmgrName(rmid), info, rminfo);
 	}
 
 	for (block_id = 0; block_id <= XLogRecMaxBlockId(record); block_id++)

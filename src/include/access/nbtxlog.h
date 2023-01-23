@@ -21,8 +21,7 @@
 /*
  * XLOG records for btree operations
  *
- * XLOG allows to store some information in high 4 bits of log
- * record xl_info field
+ * XLOG allows to store some information in the 8-bit xl_rmgrinfo field.
  */
 #define XLOG_BTREE_INSERT_LEAF	0x00	/* add index tuple without split */
 #define XLOG_BTREE_INSERT_UPPER 0x10	/* same, on a non-leaf page */

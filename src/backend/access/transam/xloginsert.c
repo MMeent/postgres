@@ -135,7 +135,7 @@ static bool begininsert_called = false;
 /* Memory context to hold the registered buffer and data references. */
 static MemoryContext xloginsert_cxt;
 
-static XLogRecData *XLogRecordAssemble(RmgrId rmid, uint8 info,
+static XLogRecData *XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info,
 									   XLogRecPtr RedoRecPtr, bool doPageWrites,
 									   XLogRecPtr *fpw_lsn, int *num_fpi,
 									   bool *topxid_included);
@@ -447,9 +447,9 @@ XLogSetRecordFlags(uint8 flags)
 }
 
 /*
- * Insert an XLOG record having the specified RMID and info bytes, with the
- * body of the record being the data and buffer references registered earlier
- * with XLogRegister* calls.
+ * Insert an XLOG record having the specified RMID and rmgr_info bytes, with
+ * the body of the record being the data and buffer references registered
+ * earlier with XLogRegister* calls.
  *
  * Returns XLOG pointer to end of record (beginning of next record).
  * This can be used as LSN for data pages affected by the logged action.
@@ -458,7 +458,13 @@ XLogSetRecordFlags(uint8 flags)
  * WAL rule "write the log before the data".)
  */
 XLogRecPtr
-XLogInsert(RmgrId rmid, uint8 info)
+XLogInsert(RmgrId rmid, uint8 rmgr_info)
+{
+	return XLogInsertExtended(rmid, 0, rmgr_info);
+}
+
+XLogRecPtr
+XLogInsertExtended(RmgrId rmid, uint8 info, uint8 rmgr_info)
 {
 	XLogRecPtr	EndPos;
 
@@ -470,12 +476,11 @@ XLogInsert(RmgrId rmid, uint8 info)
 	 * The caller can set rmgr bits, XLR_SPECIAL_REL_UPDATE and
 	 * XLR_CHECK_CONSISTENCY; the rest are reserved for use by me.
 	 */
-	if ((info & ~(XLR_RMGR_INFO_MASK |
-				  XLR_SPECIAL_REL_UPDATE |
+	if ((info & ~(XLR_SPECIAL_REL_UPDATE |
 				  XLR_CHECK_CONSISTENCY)) != 0)
 		elog(PANIC, "invalid xlog info mask %02X", info);
 
-	TRACE_POSTGRESQL_WAL_INSERT(rmid, info);
+	TRACE_POSTGRESQL_WAL_INSERT(rmid, info, rmgr_info);
 
 	/*
 	 * In bootstrap mode, we don't actually log anything but XLOG resources;
@@ -504,7 +509,7 @@ XLogInsert(RmgrId rmid, uint8 info)
 		 */
 		GetFullPageWriteInfo(&RedoRecPtr, &doPageWrites);
 
-		rdt = XLogRecordAssemble(rmid, info, RedoRecPtr, doPageWrites,
+		rdt = XLogRecordAssemble(rmid, info, rmgr_info, RedoRecPtr, doPageWrites,
 								 &fpw_lsn, &num_fpi, &topxid_included);
 
 		EndPos = XLogInsertRecord(rdt, fpw_lsn, curinsert_flags, num_fpi,
@@ -532,8 +537,7 @@ XLogInsert(RmgrId rmid, uint8 info)
  * current subtransaction.
  */
 static XLogRecData *
-XLogRecordAssemble(RmgrId rmid, uint8 info,
-				   XLogRecPtr RedoRecPtr, bool doPageWrites,
+XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecPtr, bool doPageWrites,
 				   XLogRecPtr *fpw_lsn, int *num_fpi, bool *topxid_included)
 {
 	XLogRecData *rdt;
@@ -924,6 +928,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 	rechdr->xl_tot_len = (uint32) total_len;
 	rechdr->xl_info = info;
 	rechdr->xl_rmid = rmid;
+	rechdr->xl_rmgrinfo = rmgr_info;
 	rechdr->xl_prev = InvalidXLogRecPtr;
 	rechdr->xl_crc = rdata_crc;
 
