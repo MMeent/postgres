@@ -69,7 +69,7 @@ LogLogicalMessage(const char *prefix, const char *message, size_t size,
 	XLogRegisterData(unconstify(char *, message), size);
 
 	/* allow origin filtering */
-	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 	return XLogInsert(RM_LOGICALMSG_ID, XLOG_LOGICAL_MESSAGE);
 }

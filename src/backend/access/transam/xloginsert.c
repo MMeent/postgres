@@ -456,6 +456,10 @@ XLogSetRecordFlags(uint8 flags)
  * (LSN is the XLOG point up to which the XLOG must be flushed to disk
  * before the data page can be written out.  This implements the basic
  * WAL rule "write the log before the data".)
+ *
+ * Note: To include the current backend's TransactionID in the record,
+ * you have to set the XLOG_INCLUDE_XID flag using XLogRecordSetFlags
+ * before calling XLogInsert.
  */
 XLogRecPtr
 XLogInsert(RmgrId rmid, uint8 rmgr_info)
@@ -847,7 +851,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 	}
 
 	/* followed by toplevel XID, if not already included in previous record */
-	if (IsSubxactTopXidLogPending())
+	if (curinsert_flags & XLOG_INCLUDE_XID && IsSubxactTopXidLogPending())
 	{
 		TransactionId xid = GetTopTransactionIdIfAny();
 
@@ -924,7 +928,11 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 	 * once we know where in the WAL the record will be inserted. The CRC does
 	 * not include the record header yet.
 	 */
-	rechdr->xl_xid = GetCurrentTransactionIdIfAny();
+	if (curinsert_flags & XLOG_INCLUDE_XID)
+		rechdr->xl_xid = GetCurrentTransactionIdIfAny();
+	else
+		rechdr->xl_xid = InvalidTransactionId;
+
 	rechdr->xl_tot_len = (uint32) total_len;
 	rechdr->xl_info = info;
 	rechdr->xl_rmid = rmid;

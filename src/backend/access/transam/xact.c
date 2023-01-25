@@ -5794,7 +5794,7 @@ XactLogCommitRecord(TimestampTz commit_time,
 		XLogRegisterData((char *) (&xl_origin), sizeof(xl_xact_origin));
 
 	/* we allow filtering by xacts */
-	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 	return XLogInsertExtended(RM_XACT_ID, info, rmgr_info);
 }
@@ -5941,7 +5941,7 @@ XactLogAbortRecord(TimestampTz abort_time,
 		XLogRegisterData((char *) (&xl_origin), sizeof(xl_xact_origin));
 
 	/* Include the replication origin */
-	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 	return XLogInsertExtended(RM_XACT_ID, info, rmgr_info);
 }

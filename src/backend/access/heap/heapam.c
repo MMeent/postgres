@@ -1969,7 +1969,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 							heaptup->t_len - SizeofHeapTupleHeader);
 
 		/* filtering by origin on a row level is much more efficient */
-		XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+		XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 		recptr = XLogInsert(RM_HEAP_ID, info);
 
@@ -2365,7 +2365,7 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 			XLogRegisterBufData(0, tupledata, totaldatalen);
 
 			/* filtering by origin on a row level is much more efficient */
-			XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+			XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 			recptr = XLogInsert(RM_HEAP2_ID, info);
 
@@ -2865,7 +2865,7 @@ l1:
 		}
 
 		/* filtering by origin on a row level is much more efficient */
-		XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+		XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 		recptr = XLogInsert(RM_HEAP_ID, XLOG_HEAP_DELETE);
 
@@ -5535,6 +5535,7 @@ l4:
 				cleared_all_frozen ? XLH_LOCK_ALL_FROZEN_CLEARED : 0;
 
 			XLogRegisterData((char *) &xlrec, SizeOfHeapLockUpdated);
+			XLogSetRecordFlags(XLOG_INCLUDE_XID);
 
 			recptr = XLogInsert(RM_HEAP2_ID, XLOG_HEAP2_LOCK_UPDATED);
 
@@ -5685,7 +5686,7 @@ heap_finish_speculative(Relation relation, ItemPointer tid)
 		XLogBeginInsert();
 
 		/* We want the same filtering on this as on a plain insert */
-		XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+		XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 		XLogRegisterData((char *) &xlrec, SizeOfHeapConfirm);
 		XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
@@ -5831,7 +5832,8 @@ heap_abort_speculative(Relation relation, ItemPointer tid)
 		XLogRegisterData((char *) &xlrec, SizeOfHeapDelete);
 		XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
 
-		/* No replica identity & replication origin logged */
+		/* No replica identity & replication origin logged, but XID is required */
+		XLogSetRecordFlags(XLOG_INCLUDE_XID);
 
 		recptr = XLogInsert(RM_HEAP_ID, XLOG_HEAP_DELETE);
 
@@ -8563,7 +8565,7 @@ log_heap_update(Relation reln, Buffer oldbuf,
 	}
 
 	/* filtering by origin on a row level is much more efficient */
-	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN | XLOG_INCLUDE_XID);
 
 	recptr = XLogInsert(RM_HEAP_ID, info);
 
@@ -8638,7 +8640,7 @@ log_heap_new_cid(Relation relation, HeapTuple tup)
 	XLogRegisterData((char *) &xlrec, SizeOfHeapNewCid);
 
 	/* will be looked at irrespective of origin */
-
+	XLogSetRecordFlags(XLOG_INCLUDE_XID);
 	recptr = XLogInsert(RM_HEAP2_ID, XLOG_HEAP2_NEW_CID);
 
 	return recptr;

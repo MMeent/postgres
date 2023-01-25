@@ -834,6 +834,7 @@ MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 	 * Not clear that it's worth the trouble though.
 	 */
 	XLogBeginInsert();
+	XLogSetRecordFlags(XLOG_INCLUDE_XID);
 	XLogRegisterData((char *) (&xlrec), SizeOfMultiXactCreate);
 	XLogRegisterData((char *) members, nmembers * sizeof(MultiXactMember));
 
