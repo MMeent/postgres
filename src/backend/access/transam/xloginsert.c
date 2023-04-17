@@ -1304,6 +1304,10 @@ log_newpage_range(Relation rel, ForkNumber forknum,
 			blkno++;
 		}
 
+		/* Don't emit a WAL record if all pages were new */
+		if (nbufs == 0)
+			break;
+
 		/* Write WAL record for this batch. */
 		XLogBeginInsert();
 
