@@ -404,7 +404,7 @@ extern bool DecodeXLogRecord(XLogReaderState *state,
  * Macros that provide access to parts of the record most recently returned by
  * XLogReadRecord() or XLogNextRecord().
  */
-#define XLogRecGetTotalLen(decoder) ((decoder)->record->header.xl_tot_len)
+#define XLogRecGetTotalLen(decoder) ((decoder)->record->header.xl_payload_len)
 #define XLogRecGetPrev(decoder) ((decoder)->record->header.xl_prev)
 #define XLogRecGetInfo(decoder) ((decoder)->record->header.xl_info)
 #define XLogRecGetRmgrInfo(decoder) ((decoder)->record->header.xl_rmgrinfo)

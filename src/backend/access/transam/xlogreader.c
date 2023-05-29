@@ -535,6 +535,9 @@ static XLogPageReadResult
 XLogDecodeNextRecord(XLogReaderState *state, bool nonblocking)
 {
 	XLogRecPtr	RecPtr;
+	XLogRecord	recHdrData;
+	char		recHdrDataBuf[XLogRecordMaxHrdSize];
+	char	   *pageRecHdrPtr;
 	XLogRecord *record;
 	XLogRecPtr	targetPagePtr;
 	bool		randAccess;
@@ -644,13 +647,23 @@ restart:
 	 * Read the record length.
 	 *
 	 * NB: Even though we use an XLogRecord pointer here, the whole record
-	 * header might not fit on this page. xl_tot_len is the first field of the
-	 * struct, so it must be on this page (the records are MAXALIGNed), but we
+	 * header might not fit on this page. xl_payload_len is starts at third
+	 * field of the data, so it must be on this page (the records are MAXALIGNed), but we
 	 * cannot access any other fields until we've verified that we got the
 	 * whole header.
 	 */
+	pageRecHdrPtr = (state->readBuf + (RecPtr % XLOG_BLCKSZ));
+	if (XLOG_BLCKSZ - (RecPtr % XLOG_BLCKSZ) < XLogRecordHdrSize(*pageRecHdrPtr))
+	{
+		/* estimate alloc size */
+		total_len = 0;
+	}
+	else
+	{
+		total_len = 0;
+	}
 	record = (XLogRecord *) (state->readBuf + RecPtr % XLOG_BLCKSZ);
-	total_len = record->xl_tot_len;
+	total_len = record->xl_payload_len;
 
 	/*
 	 * If the whole record header is on this page, validate it immediately.
@@ -1117,12 +1130,12 @@ ValidXLogRecordHeader(XLogReaderState *state, XLogRecPtr RecPtr,
 					  XLogRecPtr PrevRecPtr, XLogRecord *record,
 					  bool randAccess)
 {
-	if (record->xl_tot_len < SizeOfXLogRecord)
+	if (record->xl_payload_len < SizeOfXLogRecord)
 	{
 		report_invalid_record(state,
 							  "invalid record length at %X/%X: expected at least %u, got %u",
 							  LSN_FORMAT_ARGS(RecPtr),
-							  (uint32) SizeOfXLogRecord, record->xl_tot_len);
+							  (uint32) SizeOfXLogRecord, record->xl_payload_len);
 		return false;
 	}
 	if (!RmgrIdIsValid(record->xl_rmid))
@@ -1185,7 +1198,7 @@ ValidXLogRecord(XLogReaderState *state, XLogRecord *record, XLogRecPtr recptr)
 
 	/* Calculate the CRC */
 	INIT_CRC32C(crc);
-	COMP_CRC32C(crc, ((char *) record) + SizeOfXLogRecord, record->xl_tot_len - SizeOfXLogRecord);
+	COMP_CRC32C(crc, ((char *) record) + SizeOfXLogRecord, record->xl_payload_len - SizeOfXLogRecord);
 	/* include the record header last */
 	COMP_CRC32C(crc, (char *) record, offsetof(XLogRecord, xl_crc));
 	FIN_CRC32C(crc);
@@ -1684,7 +1697,7 @@ DecodeXLogRecord(XLogReaderState *state,
 	decoded->max_block_id = -1;
 	ptr = (char *) record;
 	ptr += SizeOfXLogRecord;
-	remaining = record->xl_tot_len - SizeOfXLogRecord;
+	remaining = record->xl_payload_len - SizeOfXLogRecord;
 
 	/* Decode the headers */
 	datatotal = 0;
@@ -1960,7 +1973,7 @@ DecodeXLogRecord(XLogReaderState *state,
 
 	/* Report the actual size we used. */
 	decoded->size = MAXALIGN(out - (char *) decoded);
-	Assert(DecodeXLogRecordRequiredSpace(record->xl_tot_len) >=
+	Assert(DecodeXLogRecordRequiredSpace(record->xl_payload_len) >=
 		   decoded->size);
 
 	return true;

@@ -26,6 +26,7 @@
 #include "pgtime.h"
 #include "storage/block.h"
 #include "storage/relfilelocator.h"
+#include "transam.h"
 
 
 /*
@@ -440,6 +441,78 @@ static inline Size XLogReadLength(uint32 *length, XLogSizeClass sizeClass,
 
 #undef READ_OP
 	return readSize;
+}
+
+inline static Size XLogRecordReadLength(char *record, Size remaining)
+{
+	uint8		xl_info = recdata[offset];
+	XLogSizeClass sizeClass;
+	uint32		length;
+	sizeClass = XLR_SIZECLASS(xl_info);
+
+	XLogReadLength(&length, sizeClass, XLS_UINT32,
+				   record + 2, remaining);
+
+#if defined(WORDS_BIGENDIAN) && MAXIMUM_ALIGNOF < 8
+	length = pg_bswap32(length);
+#endif
+
+	return (Size) length;
+}
+
+inline static void XLogReadRecordInto(char *recdata, Size length,
+									  XLogRecord *record)
+{
+	Size offset		= 0;
+	Size hdr_size PG_USED_FOR_ASSERTS_ONLY = 0;
+	XLogSizeClass sizeClass;
+
+	Assert(length >= XLogRecordMinHrdSize);
+
+	record->xl_info = recdata[offset];
+	offset += sizeof(uint8);
+
+	hdr_size = XLogRecordHdrSize(record->xl_info);
+	Assert(length >= hdr_size);
+
+	record->xl_rmid = recdata[offset];
+	offset += sizeof(uint8);
+
+	sizeClass = XLR_SIZECLASS(record->xl_info);
+	offset += XLogReadLength(&record->xl_payload_len, sizeClass,
+							 XLS_UINT32, recdata + offset, length - offset);
+#if defined(WORDS_BIGENDIAN) && MAXIMUM_ALIGNOF < 8
+	if (sizeClass == XLS_UINT32)
+		record->xl_payload_len = pg_bswap32(record->xl_payload_len);
+#endif
+
+	if (record->xl_info & XLR_HAS_RMGRINFO)
+	{
+		record->xl_rmgrinfo = recdata[offset];
+		offset += sizeof(uint8);
+	}
+	else
+	{
+		record->xl_rmgrinfo = 0;
+	}
+
+	if (record->xl_info & XLR_HAS_XID)
+	{
+		memcpy(&record->xl_xid, recdata + offset, sizeof(TransactionId));
+		offset += sizeof(TransactionId);
+	}
+	else
+	{
+		record->xl_xid = InvalidTransactionId;
+	}
+
+	memcpy(&record->xl_prev, recdata + offset, sizeof(XLogRecPtr));
+	offset += sizeof(XLogRecPtr);
+
+	memcpy(&record->xl_crc, recdata + offset, sizeof(pg_crc32c));
+	offset += sizeof(pg_crc32c);
+
+	Assert(hdr_size == offset);
 }
 
 /*

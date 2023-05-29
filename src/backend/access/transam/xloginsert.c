@@ -545,12 +545,15 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 				   XLogRecPtr *fpw_lsn, int *num_fpi, bool *topxid_included)
 {
 	XLogRecData *rdt;
-	uint64		total_len = 0;
+	uint64		payload_len = 0;
+	XLogSizeClass payload_sizeclass = XLS_EMPTY;
 	int			block_id;
 	pg_crc32c	rdata_crc;
 	registered_buffer *prev_regbuf = NULL;
 	XLogRecData *rdt_datas_last;
-	XLogRecord *rechdr;
+	uint8	   *rechdr;
+	uint8		xlr_flags = 0;
+	uint32		hdr_size;
 	char	   *scratch = hdr_scratch;
 
 	/*
@@ -558,9 +561,10 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 	 * All the modifications we do to the rdata chains below must handle that.
 	 */
 
-	/* The record begins with the fixed-size header */
-	rechdr = (XLogRecord *) scratch;
-	scratch += SizeOfXLogRecord;
+	/* The record begins with the variable-size header */
+	rechdr = (uint8 *) scratch;
+
+	scratch += XLogRecordMaxHrdSize;
 
 	hdr_rdt.next = NULL;
 	rdt_datas_last = &hdr_rdt;
@@ -779,7 +783,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 				}
 			}
 
-			total_len += bimg.length;
+			payload_len += bimg.length;
 		}
 
 		if (needs_data)
@@ -797,7 +801,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 			bkpb.fork_flags |= BKPBLOCK_HAS_DATA;
 			data_length = (uint16) regbuf->rdata_len;
 			data_sizeclass = XLogLengthToSizeClass(data_length, XLS_UINT16);
-			total_len += regbuf->rdata_len;
+			payload_len += regbuf->rdata_len;
 
 			rdt_datas_last->next = regbuf->rdata_head;
 			rdt_datas_last = regbuf->rdata_tail;
@@ -889,12 +893,86 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 		}
 		rdt_datas_last->next = mainrdata_head;
 		rdt_datas_last = mainrdata_last;
-		total_len += mainrdata_len;
+		payload_len += mainrdata_len;
 	}
 	rdt_datas_last->next = NULL;
 
-	hdr_rdt.len = (scratch - hdr_scratch);
-	total_len += hdr_rdt.len;
+	/* Add the block headers section's length to the payload */
+	payload_len += (scratch - hdr_scratch) - XLogRecordMaxHrdSize;
+
+
+	/*
+	 * Fill in the fields in the record header. Prev-link is filled in later,
+	 * once we know where in the WAL the record will be inserted. The CRC does
+	 * not include the record header yet.
+	 */
+	payload_sizeclass = XLogLengthToSizeClass(payload_len, XLS_UINT32);
+
+	xlr_flags |= payload_sizeclass;
+
+	if (rmgr_info != 0)
+		xlr_flags |= XLR_HAS_RMGRINFO;
+
+		/* Set up the xlog header. and xl_rmgr */
+	hdr_scratch[0] = (char) xlr_flags;
+	hdr_scratch[1] = (char) rmid;
+	hdr_size = sizeof(uint8) * 2;
+
+	/* next, xl_payload_len */
+#if defined(WORDS_BIGENDIAN) && MAXIMUM_ALIGNOF < 8
+	/*
+	 * On 32-bit little-endian systems, the 4-byte length is reordered to make
+	 * the most significant bits align in the first WAL read unit of 4B.
+	 * For 64-byte systems, the first MAXALIGN unit will contain the full
+	 * length field, so we don't need to take special care for that in that
+	 * architecture.
+	 */
+	if (payload_sizeclass == XLS_UINT32)
+	{
+		hdr_size += XLogWriteLength(pg_bswap32(payload_len), payload_sizeclass,
+									XLS_UINT32,
+									hdr_scratch + hdr_size);
+	}
+	else
+#endif
+	{
+		hdr_size += XLogWriteLength(payload_len, payload_sizeclass,
+									XLS_UINT32,
+									hdr_scratch + hdr_size);
+	}
+
+	if (rmgr_info != 0)
+	{
+		xlr_flags |= XLR_HAS_RMGRINFO;
+		memcpy(hdr_scratch + hdr_size, &rmgr_info, sizeof(uint8));
+		hdr_size += sizeof(uint8);
+	}
+
+	if (curinsert_flags & XLOG_INCLUDE_XID)
+	{
+		TransactionId xid = GetCurrentTransactionIdIfAny();
+
+		Assert(!(*topxid_included) || TransactionIdIsValid(xid));
+
+		if (TransactionIdIsValid(xid))
+		{
+			xlr_flags |= XLR_HAS_XID;
+			memcpy(hdr_scratch + hdr_size, &xid, sizeof(TransactionId));
+			hdr_size += sizeof(TransactionId);
+		}
+	}
+
+	hdr_size += sizeof(XLogRecPtr);
+	hdr_size += sizeof(pg_crc32c);
+
+	memmove(hdr_scratch + XLogRecordMaxHrdSize - hdr_size,
+			hdr_scratch, hdr_size);
+
+	hdr_rdt.data = hdr_scratch + XLogRecordMaxHrdSize - hdr_size;
+
+	Assert(hdr_size == XLogRecordHdrSize(xlr_flags));
+
+	hdr_rdt.len = (scratch - hdr_rdt.data);
 
 	/*
 	 * Calculate CRC of the data
@@ -905,9 +983,13 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 	 * header.
 	 */
 	INIT_CRC32C(rdata_crc);
-	COMP_CRC32C(rdata_crc, hdr_scratch + SizeOfXLogRecord, hdr_rdt.len - SizeOfXLogRecord);
+	COMP_CRC32C(rdata_crc, hdr_scratch + XLogRecordMaxHrdSize,
+				hdr_rdt.len - hdr_size);
 	for (rdt = hdr_rdt.next; rdt != NULL; rdt = rdt->next)
 		COMP_CRC32C(rdata_crc, rdt->data, rdt->len);
+
+	memcpy(hdr_rdt.data + hdr_size - sizeof(pg_crc32c),
+		   &rdata_crc, sizeof(pg_crc32c));
 
 	/*
 	 * Ensure that the XLogRecord is not too large.
@@ -917,28 +999,11 @@ XLogRecordAssemble(RmgrId rmid, uint8 info, uint8 rmgr_info, XLogRecPtr RedoRecP
 	 * not emit records larger than the sizes advertised to be supported.
 	 * This cap is based on DecodeXLogRecordRequiredSpace().
 	 */
-	if (total_len >= XLogRecordMaxSize)
+	if (payload_len + hdr_size >= XLogRecordMaxSize)
 		ereport(ERROR,
 				(errmsg_internal("oversized WAL record"),
 				 errdetail_internal("WAL record would be %llu bytes (of maximum %u bytes); rmid %u flags %u.",
-									(unsigned long long) total_len, XLogRecordMaxSize, rmid, info)));
-
-	/*
-	 * Fill in the fields in the record header. Prev-link is filled in later,
-	 * once we know where in the WAL the record will be inserted. The CRC does
-	 * not include the record header yet.
-	 */
-	if (curinsert_flags & XLOG_INCLUDE_XID)
-		rechdr->xl_xid = GetCurrentTransactionIdIfAny();
-	else
-		rechdr->xl_xid = InvalidTransactionId;
-
-	rechdr->xl_tot_len = (uint32) total_len;
-	rechdr->xl_info = info;
-	rechdr->xl_rmid = rmid;
-	rechdr->xl_rmgrinfo = rmgr_info;
-	rechdr->xl_prev = InvalidXLogRecPtr;
-	rechdr->xl_crc = rdata_crc;
+									(unsigned long long) payload_len, XLogRecordMaxSize, rmid, info)));
 
 	return &hdr_rdt;
 }

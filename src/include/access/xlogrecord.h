@@ -38,9 +38,23 @@ typedef enum XLogSizeClass {
 	XLS_UINT32 = 3		/* length <= UINT32_MAX; stored in uint32 (4B) */
 } XLogSizeClass;
 
+static inline int XLogSizeClassToByteLength(XLogSizeClass sz)
+{
+	switch (sz) {
+		case XLS_EMPTY:
+			return 0;
+		case XLS_UINT8:
+			return sizeof(uint8);
+		case XLS_UINT16:
+			return sizeof(uint16);
+		case XLS_UINT32:
+			return sizeof(uint32);
+	}
+}
+
 /*
  * The overall layout of an XLOG record is:
- *		Fixed-size header (XLogRecord struct)
+ *		Variable-size header (containing the data of the XLogRecord struct)
  *		XLogRecordBlockHeader struct
  *		XLogRecordBlockHeader struct
  *		...
@@ -49,6 +63,15 @@ typedef enum XLogSizeClass {
  *		block data
  *		...
  *		main data
+ *
+ * Different xlog record headers need to store different header fields, so
+ * depending on flags in the xl_info field the layout may change.
+ * 
+ * Note that for records larger than 0xFFFF, the size field will be 4 bytes
+ * long, which is larger than the minimum alignment of a WAL record. To still
+ * be able to read the record correctly, we always store this 4-byte length
+ * in big endian, so that we can overestimate the length at first and correct
+ * the length once we've read the next few bytes of the record.
  *
  * There can be zero or more XLogRecordBlockHeaders, and 0 or more bytes of
  * rmgr-specific data not associated with a block.  XLogRecord structs
@@ -61,17 +84,13 @@ typedef enum XLogSizeClass {
  */
 typedef struct XLogRecord
 {
-	uint32		xl_tot_len;		/* total len of entire record */
-	TransactionId xl_xid;		/* xact id */
-	XLogRecPtr	xl_prev;		/* ptr to previous record in log */
 	uint8		xl_info;		/* flag bits, see below */
 	RmgrId		xl_rmid;		/* resource manager for this record */
+	uint32		xl_payload_len;		/* total len of entire record */
 	uint8		xl_rmgrinfo;	/* rmgr flag bits, see below */
-	/* 1 byte of padding here, initialize to zero */
+	TransactionId xl_xid;		/* xact id */
+	XLogRecPtr	xl_prev;		/* ptr to previous record in log */
 	pg_crc32c	xl_crc;			/* CRC for this record */
-
-	/* XLogRecordBlockHeaders and XLogRecordDataHeader follow, no padding */
-
 } XLogRecord;
 
 #define SizeOfXLogRecord	(offsetof(XLogRecord, xl_crc) + sizeof(pg_crc32c))
@@ -87,13 +106,28 @@ typedef struct XLogRecord
  */
 #define XLogRecordMaxSize	(1020 * 1024 * 1024)
 
+#define XLR_SIZECLASS_MASK		0x03
+#define XLR_SIZECLASS(xl_info) ((XLogSizeClass) ((xl_info) & XLR_SIZECLASS_MASK))
+
+/*
+ * There are several rmgrs which don't use info bits, so we omit that
+ * byte whenever possible.
+ */
+#define XLR_HAS_RMGRINFO		0x04
+
+/*
+ * If a WAL record uses the current transaction ID, that will be included
+ * in the record header. In all other cases we omit the XID to save bytes.
+ */
+#define XLR_HAS_XID				0x08
+
 /*
  * If a WAL record modifies any relation files, in ways not covered by the
  * usual block references, this flag is set. This is not used for anything
  * by PostgreSQL itself, but it allows external tools that read WAL and keep
  * track of modified blocks to recognize such special record types.
  */
-#define XLR_SPECIAL_REL_UPDATE	0x01
+#define XLR_SPECIAL_REL_UPDATE	0x10
 
 /*
  * Enforces consistency checks of replayed WAL at recovery. If enabled,
@@ -102,7 +136,48 @@ typedef struct XLogRecord
  * of XLogInsert can use this value if necessary, but if
  * wal_consistency_checking is enabled for a rmgr this is set unconditionally.
  */
-#define XLR_CHECK_CONSISTENCY	0x02
+#define XLR_CHECK_CONSISTENCY	(0x20)
+
+#define XLogRecordMaxHrdSize ( \
+	sizeof(uint8) /* xl_info */ + \
+	sizeof(uint8) /* xl_rmid */ + \
+	sizeof(uint32) /* xl_payload_len */ + \
+	sizeof(uint8) /* xl_rmgrinfo */ + \
+	sizeof(TransactionId) /* xl_xid */ + \
+	sizeof(XLogRecPtr) /* xl_prev */ + \
+	sizeof(pg_crc32c) /* xl_crc */ \
+)
+
+#define XLogRecordMinHrdSize ( \
+	sizeof(uint8) /* xl_info */ + \
+	sizeof(uint8) /* xl_rmid */ + \
+	0 /* xl_payload_len */ + \
+	0 /* xl_rmgrinfo */ + \
+	0 /* xl_xid */ + \
+	sizeof(XLogRecPtr) /* xl_prev */ + \
+	sizeof(pg_crc32c) /* xl_crc */ \
+)
+
+static inline Size XLogRecordHdrSize(uint8 info)
+{
+	Size size = 0;
+	/* xl_info */
+	size += sizeof(uint8);
+	/* xl_rmid */
+	size += sizeof(uint8);
+	/* xl_payload_len */
+	size += XLogSizeClassToByteLength(XLR_SIZECLASS(info));
+	/* xl_rmgrinfo */
+	size += (((info) & XLR_HAS_RMGRINFO) ? sizeof(uint8) : 0);
+	/* xl_xid */
+	size += (((info) & XLR_HAS_XID) ? sizeof(TransactionId) : 0);
+	/* xl_prev */
+	size += sizeof(XLogRecPtr);
+	/* xl_crc */
+	size += sizeof(pg_crc32c);
+
+	return size;
+}
 
 /*
  * Header info for block data appended to an XLOG record.
