@@ -1,7 +1,7 @@
 # Copyright (c) 2023, PostgreSQL Global Development Group
 
 brin_aops_sources = files(
-  'brin_aops.c',
+  'brin_minmax_aops.c',
 )
 
 if host_system == 'windows'

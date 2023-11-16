@@ -26,6 +26,13 @@ typedef struct BAOpsMinmaxOpaque
 	FmgrInfo	strategy_procinfos[BTMaxStrategyNumber];
 } BAOpsMinmaxOpaque;
 
+#define BAOP_MM_ATT_MIN 0
+#define BAOP_MM_ATT_MAX 1
+#define BAOP_MM_ATT_ANY_NULLS 2
+#define BAOP_MM_ATT_ANY_EMPTY 3
+
+#define BAOP_MM_NATTS (BAOP_MM_ATT_ANY_EMPTY + 1)
+
 PG_FUNCTION_INFO_V1(brin_aops_minmax_opcinfo);
 PG_FUNCTION_INFO_V1(brin_aops_minmax_add_value);
 PG_FUNCTION_INFO_V1(brin_aops_minmax_consistent);
@@ -50,16 +57,22 @@ brin_aops_minmax_opcinfo(PG_FUNCTION_ARGS) {
 	 * all-uninitialized by palloc0 which sets fn_oid to InvalidOid.
 	 */
 
-	result = palloc0(MAXALIGN(SizeofBrinOpcInfo(3)) +
+	result = palloc0(MAXALIGN(SizeofBrinOpcInfo(BAOP_MM_NATTS)) +
 					 sizeof(ArrayMinmaxOpaque));
 	result->oi_nstored = 3;
 	result->oi_regular_nulls = true;
 	result->oi_opaque = (ArrayMinmaxOpaque *)
-		MAXALIGN((char *) result + SizeofBrinOpcInfo(3));
-	result->oi_typcache[0] = result->oi_typcache[1] =
+		MAXALIGN((char *) result + SizeofBrinOpcInfo(BAOP_MM_NATTS));
+	result->oi_typcache[BAOP_MM_ATT_MIN] =
+		result->oi_typcache[BAOP_MM_ATT_MAX] =
 		lookup_type_cache(typoid, 0);
-	/* Apart from min/max, we also store whether the array contains any nulls */
-	result->oi_typcache[2] = lookup_type_cache(BOOLOID, 0);
+	/*
+	 * Apart from min/max, we also store whether the arrays contained
+	 * any nulls, and whether there were any empty arrays.
+	 */
+	result->oi_typcache[BAOP_MM_ATT_ANY_NULLS] =
+		result->oi_typcache[BAOP_MM_ATT_ANY_EMPTY] =
+		lookup_type_cache(BOOLOID, 0);
 	PG_RETURN_POINTER(result);
 }
 
@@ -104,6 +117,14 @@ brin_aops_minmax_add_value(PG_FUNCTION_ARGS)
 	element_type = ARR_ELEMTYPE(array);
 	Assert(element_type == TupleDescAttr(bdesc->bd_tupdesc, column->bv_attno)->atttypid);
 
+	if (ARR_SIZE(array) == 0)
+	{
+		if (column->bv_values[BAOP_MM_ATT_ANY_EMPTY] != true)
+			updated = true;
+		column->bv_values[BAOP_MM_ATT_ANY_EMPTY] = true;
+		PG_RETURN_BOOL(updated);
+	}
+
 	my_extra = (ArrayMetaState *) fcinfo->flinfo->fn_extra;
 	if (my_extra == NULL)
 	{
@@ -146,11 +167,12 @@ brin_aops_minmax_add_value(PG_FUNCTION_ARGS)
 		 * If the recorded entry is null, store the new value (which we know to be
 		 * not null) as both minimum and maximum, and we're done.
 		 */
-		if (column->bv_allnulls && !value_isnull)
+		if (!value_isnull)
 		{
-			column->bv_values[0] = datumCopy(value, attr->attbyval, attr->attlen);
-			column->bv_values[1] = datumCopy(value, attr->attbyval, attr->attlen);
-			column->bv_values[2] = false;
+			column->bv_values[BAOP_MM_ATT_MIN] = datumCopy(value, attr->attbyval, attr->attlen);
+			column->bv_values[BAOP_MM_ATT_MAX] = datumCopy(value, attr->attbyval, attr->attlen);
+			column->bv_values[BAOP_MM_ATT_ANY_NULLS] = false;
+			column->bv_values[3] = false;
 			updated = true;
 			continue;
 		}
@@ -202,8 +224,64 @@ brin_aops_minmax_consistent(PG_FUNCTION_ARGS)
 	BrinDesc   *bdesc = (BrinDesc *) PG_GETARG_POINTER(0);
 	BrinValues *column = (BrinValues *) PG_GETARG_POINTER(1);
 	ScanKey		key = (ScanKey) PG_GETARG_POINTER(2);
-	Oid			colloid = PG_GET_COLLATION();
-	bool matches = false;
+	Oid			colloid = PG_GET_COLLATION(),
+				subtype;
+	AttrNumber	attno;
+	ArrayType  *array;
+	Oid			element_type;
+	ArrayMetaState *my_extra;
+	bool		matches = true;
+	Datum		value;
+	bool		value_isnull;
+	ArrayIterator array_iterator;
+
+	/* This opclass uses the old signature with only three arguments. */
+	Assert(PG_NARGS() == 3);
+	/* Should not be dealing with all-NULL ranges. */
+	Assert(!column->bv_allnulls);
+
+	attno = key->sk_attno;
+	subtype = key->sk_subtype;
+
+	array = DatumGetArrayTypeP(key->sk_argument);
+	element_type = ARR_ELEMTYPE(array);
+	Assert(element_type == TupleDescAttr(bdesc->bd_tupdesc, column->bv_attno)->atttypid);
+	my_extra = (ArrayMetaState *) fcinfo->flinfo->fn_extra;
+	if (my_extra == NULL)
+	{
+		fcinfo->flinfo->fn_extra = MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
+													  sizeof(ArrayMetaState));
+		my_extra = (ArrayMetaState *) fcinfo->flinfo->fn_extra;
+		my_extra->element_type = ~element_type;
+	}
+
+	if (my_extra->element_type != element_type)
+	{
+		TypeCacheEntry *typentry;
+
+		get_typlenbyvalalign(element_type,
+							 &my_extra->typlen,
+							 &my_extra->typbyval,
+							 &my_extra->typalign);
+
+		typentry = lookup_type_cache(element_type, TYPECACHE_EQ_OPR_FINFO);
+
+		if (!OidIsValid(typentry->eq_opr_finfo.fn_oid))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_FUNCTION),
+						errmsg("could not identify an equality operator for type %s",
+							   format_type_be(element_type))));
+
+		my_extra->element_type = element_type;
+		fmgr_info_cxt(typentry->eq_opr_finfo.fn_oid, &my_extra->proc,
+					  fcinfo->flinfo->fn_mcxt);
+	}
+
+	array_iterator = array_create_iterator(array, 0, my_extra);
+	while (array_iterate(array_iterator, &value, &value_isnull))
+	{
+
+	}
 
 	PG_RETURN_DATUM(matches);
 }
@@ -252,8 +330,13 @@ brin_aops_minmax_union(PG_FUNCTION_ARGS)
 										attr->attbyval, attr->attlen);
 	}
 
-	if (DatumGetBool(col_a->bv_values[2]) != DatumGetBool(col_b->bv_values[2]))
-		col_a->bv_values[2] = BoolGetDatum(true);
+	if (DatumGetBool(col_a->bv_values[BAOP_MM_ATT_ANY_NULLS]) !=
+		DatumGetBool(col_b->bv_values[BAOP_MM_ATT_ANY_NULLS]))
+		col_a->bv_values[BAOP_MM_ATT_ANY_NULLS] = BoolGetDatum(true);
+
+	if (DatumGetBool(col_a->bv_values[BAOP_MM_ATT_ANY_EMPTY]) !=
+		DatumGetBool(col_b->bv_values[BAOP_MM_ATT_ANY_EMPTY]))
+		col_a->bv_values[BAOP_MM_ATT_ANY_EMPTY] = BoolGetDatum(true);
 
 	PG_RETURN_VOID();
 }
