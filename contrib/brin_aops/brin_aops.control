@@ -1,6 +1,6 @@
-# btree_gin extension
-comment = 'support for indexing common datatypes in GIN'
-default_version = '1.3'
-module_pathname = '$libdir/btree_gin'
+# brin_aops extension
+comment = 'support for indexing arrays with BRIN using minmax summaries'
+default_version = '1.0'
+module_pathname = '$libdir/brin_aops'
 relocatable = true
 trusted = true

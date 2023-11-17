@@ -1,0 +1,7 @@
+CREATE EXTENSION brin_aops;
+CREATE TABLE test AS
+    SELECT array(select y::int2 from generate_series(1, n * 10) y where y % 7 = n % 11)::int2[] AS dataset
+FROM generate_series(1, 1000) n;
+CREATE INDEX brin_minmax_int2
+    ON test
+        USING brin (dataset int2_minmax_aops);
