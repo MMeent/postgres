@@ -537,26 +537,33 @@ brin_aops_minmax_consistent(PG_FUNCTION_ARGS)
 					goto key_done;
 				break;
 			case AOPS_MINMAX_STRATEGY_CONTAINS:
-				CHECK(BTLessEqualStrategyNumber, value, minMax->min);
+				CHECK(BTGreaterEqualStrategyNumber, value, minMax->min);
 				if (!matches)
 					goto key_done;
-				CHECK(BTGreaterEqualStrategyNumber, value, minMax->max);
+				CHECK(BTLessEqualStrategyNumber, value, minMax->max);
 				if (!matches)
 					goto key_done;
 				break;
 			case AOPS_MINMAX_STRATEGY_CONTAINED:
 			case AOPS_MINMAX_STRATEGY_OVERLAP:
-				CHECK(BTLessEqualStrategyNumber, value, minMax->min);
+				CHECK(BTLessEqualStrategyNumber, value, minMax->max);
 				if (matches)
 				{
-					CHECK(BTGreaterEqualStrategyNumber, value, minMax->max);
+					CHECK(BTGreaterEqualStrategyNumber, value, minMax->min);
 					if (matches)
 						goto key_done;
 				}
 				break;
 			}
 		}
-		matches = true;
+
+		switch (key->sk_strategy) {
+		case AOPS_MINMAX_STRATEGY_OVERLAP:
+		case AOPS_MINMAX_STRATEGY_LT:
+		case AOPS_MINMAX_STRATEGY_GT:
+			matches = false;
+			break;
+		}
 
 key_done:
 		array_free_iterator(array_iterator);
