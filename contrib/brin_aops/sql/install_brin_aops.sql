@@ -25,6 +25,12 @@ SELECT count(*) FROM test WHERE dataset @> '{}'::int2[];
 EXPLAIN (costs off, analyze, verbose off, buffers, timing off)
 	SELECT count(*) FROM test WHERE dataset <@ '{1,2,3,4,5,6,7,8,9,10}'::int2[];
 SELECT count(*) FROM test WHERE dataset <@ '{1,2,3,4,5,6,7,8,9,10}'::int2[];
+EXPLAIN (costs off, analyze, verbose off, buffers, timing off)
+	SELECT count(*) FROM test WHERE dataset = '{100}'::int2[];
+SELECT count(*) FROM test WHERE dataset = '{100}'::int2[];
+EXPLAIN (costs off, analyze, verbose off, buffers, timing off)
+	SELECT count(*) FROM test WHERE dataset = '{68,73,74,77,79,80,84,85,88,89,90,94,99,100,101}'::int2[];
+SELECT count(*) FROM test WHERE dataset = '{68,73,74,77,79,80,84,85,88,89,90,94,99,100,101}'::int2[];
 
 CREATE INDEX brin_minmax_int2
     ON test
@@ -48,3 +54,9 @@ SELECT count(*) FROM test WHERE dataset @> '{}'::int2[];
 EXPLAIN (costs off, analyze, verbose off, buffers, timing off)
 	SELECT count(*) FROM test WHERE dataset <@ '{1,2,3,4,5,6,7,8,9,10}'::int2[];
 SELECT count(*) FROM test WHERE dataset <@ '{1,2,3,4,5,6,7,8,9,10}'::int2[];
+EXPLAIN (costs off, analyze, verbose off, buffers, timing off)
+	SELECT count(*) FROM test WHERE dataset = '{100}'::int2[];
+SELECT count(*) FROM test WHERE dataset = '{100}'::int2[];
+EXPLAIN (costs off, analyze, verbose off, buffers, timing off)
+	SELECT count(*) FROM test WHERE dataset = '{68,73,74,77,79,80,84,85,88,89,90,94,99,100,101}'::int2[];
+SELECT count(*) FROM test WHERE dataset = '{68,73,74,77,79,80,84,85,88,89,90,94,99,100,101}'::int2[];

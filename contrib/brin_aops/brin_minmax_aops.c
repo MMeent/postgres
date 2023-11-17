@@ -353,7 +353,7 @@ brin_aops_minmax_consistent(PG_FUNCTION_ARGS)
 				}
 				break;
 			case AOPS_MINMAX_STRATEGY_OVERLAP:
-				/* zero-sized arrays don't overlap with anything*/
+				/* zero-sized arrays don't overlap with anything */
 				if (ARR_DIMS(array) == 0)
 					PG_RETURN_BOOL(false);
 
@@ -505,55 +505,55 @@ brin_aops_minmax_consistent(PG_FUNCTION_ARGS)
 					} while(0)
 
 			/*
-			 * Scan array value isn't null, a
+			 * Scan array value isn't null. Check if the value matches the
+			 * summary.
 			 */
-			switch (key->sk_strategy) {
-				case AOPS_MINMAX_STRATEGY_LT:
-				case AOPS_MINMAX_STRATEGY_LE:
-					CHECK(BTLessEqualStrategyNumber, value, minMax->max);
+			switch (key->sk_strategy)
+			{
+			case AOPS_MINMAX_STRATEGY_LT:
+			case AOPS_MINMAX_STRATEGY_LE:
+				CHECK(BTGreaterStrategyNumber, value, minMax->min);
+				if (matches)
+					goto key_done;
+				CHECK(BTGreaterEqualStrategyNumber, value, minMax->min);
+				if (!matches)
+					goto key_done;
+				break;
+			case AOPS_MINMAX_STRATEGY_EQ:
+				CHECK(BTLessEqualStrategyNumber, value, minMax->max);
+				if (!matches)
+					goto key_done;
+				CHECK(BTGreaterEqualStrategyNumber, value, minMax->min);
+				if (!matches)
+					goto key_done;
+				break;
+			case AOPS_MINMAX_STRATEGY_GE:
+			case AOPS_MINMAX_STRATEGY_GT:
+				CHECK(BTLessStrategyNumber, value, minMax->max);
+				if (matches)
+					goto key_done;
+				CHECK(BTLessEqualStrategyNumber, value, minMax->max);
+				if (!matches)
+					goto key_done;
+				break;
+			case AOPS_MINMAX_STRATEGY_CONTAINS:
+				CHECK(BTLessEqualStrategyNumber, value, minMax->min);
+				if (!matches)
+					goto key_done;
+				CHECK(BTGreaterEqualStrategyNumber, value, minMax->max);
+				if (!matches)
+					goto key_done;
+				break;
+			case AOPS_MINMAX_STRATEGY_CONTAINED:
+			case AOPS_MINMAX_STRATEGY_OVERLAP:
+				CHECK(BTLessEqualStrategyNumber, value, minMax->min);
+				if (matches)
+				{
+					CHECK(BTGreaterEqualStrategyNumber, value, minMax->max);
 					if (matches)
 						goto key_done;
-					CHECK(BTGreaterStrategyNumber, value, minMax->max);
-					if (!matches)
-						goto key_done;
-					break;
-				case AOPS_MINMAX_STRATEGY_EQ:
-					CHECK(BTLessStrategyNumber, value, minMax->min);
-					if (!matches)
-						goto key_done;
-					CHECK(BTGreaterStrategyNumber, value, minMax->max);
-					if (!matches)
-						goto key_done;
-					break;
-				case AOPS_MINMAX_STRATEGY_GE:
-				case AOPS_MINMAX_STRATEGY_GT:
-					CHECK(BTGreaterStrategyNumber, value, minMax->min);
-					if (matches)
-						goto key_done;
-					CHECK(BTLessEqualStrategyNumber, value, minMax->min);
-					if (!matches)
-						goto key_done;
-					break;
-				case AOPS_MINMAX_STRATEGY_CONTAINS:
-					CHECK(BTLessStrategyNumber, value, minMax->min);
-					if (!matches)
-						goto key_done;
-					CHECK(BTGreaterStrategyNumber, value, minMax->max);
-					if (!matches)
-						goto key_done;
-					break;
-				case AOPS_MINMAX_STRATEGY_CONTAINED:
-				case AOPS_MINMAX_STRATEGY_OVERLAP:
-					CHECK(BTLessEqualStrategyNumber, value, minMax->max);
-					if (matches)
-					{
-						CHECK(BTGreaterEqualStrategyNumber, value, minMax->min);
-						if (matches)
-						{
-							goto key_done;
-						}
-					}
-					break;
+				}
+				break;
 			}
 		}
 		matches = true;
