@@ -12,6 +12,7 @@ SUBDIRS = \
 		basic_archive	\
 		basebackup_to_shell	\
 		bloom		\
+		brin_aops	\
 		btree_gin	\
 		btree_gist	\
 		citext		\

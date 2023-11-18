@@ -30,6 +30,7 @@ tests += {
   'bd': meson.current_build_dir(),
   'regress': {
     'sql': [
+      'brin_aops',
       'install_brin_aops',
     ],
   },

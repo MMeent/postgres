@@ -1,0 +1,142 @@
+CREATE TABLE tenk1 (
+	unique1		int4,
+	unique2		int4,
+	two			int4,
+	four		int4,
+	ten			int4,
+	twenty		int4,
+	hundred		int4,
+	thousand	int4,
+	twothousand	int4,
+	fivethous	int4,
+	tenthous	int4,
+	odd			int4,
+	even		int4,
+	stringu1	name,
+	stringu2	name,
+	string4		name
+);
+\getenv abs_srcdir PG_ABS_SRCDIR
+\set filename :abs_srcdir '/../../src/test/regress/data/tenk.data'
+COPY tenk1 FROM :'filename';
+VACUUM ANALYZE tenk1;
+CREATE EXTENSION brin_aops;
+CREATE TABLE brintest (byteacol bytea[],
+	charcol "char"[],
+	namecol name[],
+	int8col bigint[],
+	int2col smallint[],
+	int4col integer[],
+	textcol text[],
+	oidcol oid[],
+	tidcol tid[],
+	float4col real[],
+	float8col double precision[],
+	macaddrcol macaddr[],
+	inetcol inet[],
+	bpcharcol character[],
+	datecol date[],
+	timecol time without time zone[],
+	timestampcol timestamp without time zone[],
+	timestamptzcol timestamp with time zone[],
+	intervalcol interval[],
+	timetzcol time with time zone[],
+	bitcol bit(10)[],
+	varbitcol bit varying(16)[],
+	numericcol numeric[],
+	uuidcol uuid[],
+	lsncol pg_lsn[]
+) WITH (fillfactor=10, autovacuum_enabled=off);
+INSERT INTO brintest SELECT
+	ARRAY[repeat(stringu1, 8)::bytea],
+	ARRAY[substr(stringu1, 1, 1)::"char"],
+	ARRAY[stringu1::name],
+	ARRAY[142857 * tenthous],
+	ARRAY[thousand],
+	ARRAY[twothousand],
+	ARRAY[repeat(stringu1, 8)],
+	ARRAY[unique1::oid],
+	ARRAY[format('(%s,%s)', tenthous, twenty)::tid],
+	ARRAY[(four + 1.0)/(hundred+1)],
+	ARRAY[odd::float8 / (tenthous + 1)],
+	ARRAY[format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr],
+	ARRAY[inet '10.2.3.4/24' + tenthous],
+	ARRAY[substr(stringu1, 1, 1)::bpchar],
+	ARRAY[date '1995-08-15' + tenthous],
+	ARRAY[time '01:20:30' + thousand * interval '18.5 second'],
+	ARRAY[timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours'],
+	ARRAY[timestamptz '1972-10-10 03:00' + thousand * interval '1 hour'],
+	ARRAY[justify_days(justify_hours(tenthous * interval '12 minutes'))],
+	ARRAY[timetz '01:30:20+02' + hundred * interval '15 seconds'],
+	ARRAY[thousand::bit(10)],
+	ARRAY[tenthous::bit(16)::varbit],
+	ARRAY[tenthous::numeric(36,30) * fivethous * even / (hundred + 1)],
+	ARRAY[format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid],
+	ARRAY[format('%s/%s%s', odd, even, tenthous)::pg_lsn]
+FROM tenk1 ORDER BY unique2 LIMIT 100;
+-- throw in some NULL's and different values
+INSERT INTO brintest (inetcol, cidrcol) SELECT
+	ARRAY[inet 'fe80::6e40:8ff:fea9:8c46' + tenthous],
+	ARRAY[cidr 'fe80::6e40:8ff:fea9:8c46' + tenthous]
+FROM tenk1 ORDER BY thousand, tenthous LIMIT 25;
+ERROR:  column "cidrcol" of relation "brintest" does not exist
+LINE 1: INSERT INTO brintest (inetcol, cidrcol) SELECT
+                                       ^
+SELECT * FROM pg_opclass WHERE opcdefault AND opcmethod = (select oid from pg_am where amname = 'brin') and opcname LIKE '%minmax_aops';
+  oid  | opcmethod |         opcname         | opcnamespace | opcowner | opcfamily | opcintype | opcdefault | opckeytype
+-------+-----------+-------------------------+--------------+----------+-----------+-----------+------------+------------
+ 16408 |      3580 | int2_minmax_aops        |         2200 |       10 |     16399 |      1005 | t          |         21
+ 16418 |      3580 | int4_minmax_aops        |         2200 |       10 |     16399 |      1007 | t          |         23
+ 16428 |      3580 | int8_minmax_aops        |         2200 |       10 |     16399 |      1016 | t          |         20
+ 16447 |      3580 | numeric_minmax_aops     |         2200 |       10 |     16438 |      1231 | t          |       1700
+ 16466 |      3580 | text_minmax_aops        |         2200 |       10 |     16457 |      1009 | t          |         25
+ 16485 |      3580 | timetz_minmax_aops      |         2200 |       10 |     16476 |      1270 | t          |       1266
+ 16504 |      3580 | date_minmax_aops        |         2200 |       10 |     16495 |      1182 | t          |       1082
+ 16514 |      3580 | timestamp_minmax_aops   |         2200 |       10 |     16495 |      1115 | t          |       1114
+ 16524 |      3580 | timestamptz_minmax_aops |         2200 |       10 |     16495 |      1185 | t          |       1184
+ 16543 |      3580 | char_minmax_aops        |         2200 |       10 |     16534 |      1002 | t          |         18
+ 16562 |      3580 | bytea_minmax_aops       |         2200 |       10 |     16553 |      1001 | t          |         17
+ 16581 |      3580 | name_minmax_aops        |         2200 |       10 |     16572 |      1003 | t          |         19
+ 16600 |      3580 | oid_minmax_aops         |         2200 |       10 |     16591 |      1028 | t          |         26
+ 16619 |      3580 | tid_minmax_aops         |         2200 |       10 |     16610 |      1010 | t          |         27
+ 16638 |      3580 | float4_minmax_aops      |         2200 |       10 |     16629 |      1021 | t          |        700
+ 16648 |      3580 | float8_minmax_aops      |         2200 |       10 |     16629 |      1022 | t          |        701
+ 16667 |      3580 | macaddr_minmax_aops     |         2200 |       10 |     16658 |      1040 | t          |        829
+ 16686 |      3580 | inet_minmax_aops        |         2200 |       10 |     16677 |      1041 | t          |        869
+ 16705 |      3580 | bpchar_minmax_aops      |         2200 |       10 |     16696 |      1014 | t          |       1042
+ 16724 |      3580 | time_minmax_aops        |         2200 |       10 |     16715 |      1183 | t          |       1083
+ 16743 |      3580 | interval_minmax_aops    |         2200 |       10 |     16734 |      1187 | t          |       1186
+ 16762 |      3580 | bit_minmax_aops         |         2200 |       10 |     16753 |      1561 | t          |       1560
+ 16781 |      3580 | varbit_minmax_aops      |         2200 |       10 |     16772 |      1563 | t          |       1562
+ 16800 |      3580 | uuid_minmax_aops        |         2200 |       10 |     16791 |      2951 | t          |       2950
+ 16819 |      3580 | pg_lsn_minmax_aops      |         2200 |       10 |     16810 |      3221 | t          |       3220
+ 16838 |      3580 | macaddr8_minmax_aops    |         2200 |       10 |     16829 |       775 | t          |        774
+(26 rows)
+
+CREATE INDEX brinidx ON brintest USING brin (
+	byteacol,
+	charcol,
+	namecol,
+	int8col,
+	int2col,
+	int4col,
+	textcol,
+	oidcol,
+	tidcol,
+	float4col,
+	float8col,
+	macaddrcol,
+	inetcol,
+	bpcharcol,
+	datecol,
+	timecol,
+	timestampcol,
+	timestamptzcol,
+	intervalcol,
+	timetzcol,
+	bitcol,
+	varbitcol,
+	numericcol,
+	uuidcol,
+	lsncol
+) with (pages_per_range = 1);
