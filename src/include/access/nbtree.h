@@ -1119,6 +1119,7 @@ typedef struct BTOptions
 #define PROGRESS_BTREE_PHASE_LEAF_LOAD					5
 
 #define NBTS_TYPE_CACHED CACHED
+#define NBTS_TYPE_SINGLE_KEYATT SINGLE_KEYATT
 
 /* Generate the specialized function headers */
 #define NBT_FILE "access/nbtree_specfuncs.h"
@@ -1130,11 +1131,48 @@ typedef struct BTOptions
 
 typedef enum NBTS_CTX {
 	NBTS_CTX_CACHED = 1, /* Equivalent to unspecialized code */
+	NBTS_CTX_SINGLE_KEYATT, /* Single key column index; cannot handle more */
 } NBTS_CTX;
 
 static inline NBTS_CTX _nbt_spec_context(Relation irel)
 {
+	Assert(PointerIsValid(irel));
+
+	if (IndexRelationGetNumberOfKeyAttributes(irel) == 1)
+		return NBTS_CTX_SINGLE_KEYATT;
+
 	return NBTS_CTX_CACHED;
+}
+
+static inline Datum _bt_getfirstatt(IndexTuple tuple, TupleDesc tupleDesc,
+									bool *isNull)
+{
+	Datum	result;
+	if (IndexTupleHasNulls(tuple))
+	{
+		if (att_isnull(0, (bits8 *)(tuple) + sizeof(IndexTupleData)))
+		{
+			*isNull = true;
+			result = (Datum) 0;
+		}
+		else
+		{
+			*isNull = false;
+			result = fetchatt(TupleDescAttr(tupleDesc, 0),
+							  ((char *) tuple)
+							  + MAXALIGN(sizeof(IndexTupleData)
+							  + sizeof(IndexAttributeBitMapData)));
+		}
+	}
+	else
+	{
+		*isNull = false;
+		result = fetchatt(TupleDescAttr(tupleDesc, 0),
+						  ((char *) tuple)
+						  + MAXALIGN(sizeof(IndexTupleData)));
+	}
+
+	return result;
 }
 
 #define NBTS_CTX_NAME __nbts_ctx
@@ -1142,8 +1180,12 @@ static inline NBTS_CTX _nbt_spec_context(Relation irel)
 /* contextual specialization macros */
 #define NBTS_MAKE_CTX(rel) const NBTS_CTX NBTS_CTX_NAME PG_USED_FOR_ASSERTS_ONLY = _nbt_spec_context(rel)
 #define NBTS_SPECIALIZE_NAME(name) ( \
-	AssertMacro((NBTS_CTX_NAME) == NBTS_CTX_CACHED), \
-	NBTS_MAKE_NAME(name, NBTS_TYPE_CACHED) \
+	(NBTS_CTX_NAME == NBTS_CTX_SINGLE_KEYATT) ? ( \
+		NBTS_MAKE_NAME(name, NBTS_TYPE_SINGLE_KEYATT) \
+	) : ( \
+		AssertMacro((NBTS_CTX_NAME) == NBTS_CTX_CACHED), \
+		NBTS_MAKE_NAME(name, NBTS_TYPE_CACHED) \
+	) \
 )
 
 extern bool _btinsert_dispatch(Relation rel, Datum *values, bool *isnull,

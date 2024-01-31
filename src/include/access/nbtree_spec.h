@@ -111,6 +111,49 @@
 #undef nbts_attiter_curattisnull
 
 /*
+ * Specialization 2: SINGLE_KEYATT
+ *
+ * Optimized access for indexes with a single key column.
+ *
+ * Note that this path may never be used for indexes with multiple key
+ * columns, because it only considers the first column (plus any TIDs for tie
+ * breaking).
+ */
+#define NBTS_TYPE NBTS_TYPE_SINGLE_KEYATT
+
+#define nbts_attiterdeclare(itup) \
+	bool	NBTS_MAKE_NAME(itup, isNull)
+
+#define nbts_attiterinit(itup, initAttNum, tupDesc)
+
+#define nbts_foreachattr(initAttNum, endAttNum) \
+	Assert((endAttNum) == 1); ((void) (endAttNum)); \
+	if ((initAttNum) == 1) for (int spec_i = 0; spec_i < 1; spec_i++)
+
+#define nbts_attiter_attnum 1
+
+#define nbts_attiter_nextattdatum(itup, tupDesc) \
+( \
+	AssertMacro(spec_i == 0), \
+	_bt_getfirstatt(itup, tupDesc, &NBTS_MAKE_NAME(itup, isNull)) \
+)
+
+#define nbts_attiter_curattisnull(itup) \
+	NBTS_MAKE_NAME(itup, isNull)
+
+#include NBT_SPECIALIZE_FILE
+
+#undef NBTS_TYPE
+
+/* un-define the optimization macros */
+#undef nbts_attiterdeclare
+#undef nbts_attiterinit
+#undef nbts_foreachattr
+#undef nbts_attiter_attnum
+#undef nbts_attiter_nextattdatum
+#undef nbts_attiter_curattisnull
+
+/*
  * We're done with templating, so restore or create the macros which can be
  * used in non-template sources.
  */
