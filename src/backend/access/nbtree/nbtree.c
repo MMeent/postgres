@@ -87,7 +87,8 @@ static BTVacuumPosting btreevacuumposting(BTVacState *vstate,
 										  OffsetNumber updatedoffset,
 										  int *nremaining);
 
-#include "nbtree_spec.c"
+#define NBT_FILE "../../backend/access/nbtree/nbtree_spec.c"
+#include "access/nbtree_spec.h"
 
 /*
  * Btree handler function: return IndexAmRoutine with access method parameters
@@ -123,7 +124,7 @@ bthandler(PG_FUNCTION_ARGS)
 
 	amroutine->ambuild = btbuild;
 	amroutine->ambuildempty = btbuildempty;
-	amroutine->aminsert = btinsert;
+	amroutine->aminsert = _btinsert_dispatch;
 	amroutine->aminsertcleanup = NULL;
 	amroutine->ambulkdelete = btbulkdelete;
 	amroutine->amvacuumcleanup = btvacuumcleanup;
@@ -158,6 +159,8 @@ btbuildempty(Relation index)
 	Buffer		metabuf;
 	Page		metapage;
 
+	nbt_opt_specialize(index);
+
 	/*
 	 * Initialize the metapage.
 	 *
@@ -181,6 +184,27 @@ btbuildempty(Relation index)
 
 	_bt_unlockbuf(index, metabuf);
 	ReleaseBuffer(metabuf);
+}
+
+/*
+ *	_btinsert_dispatch() -- dispatcher for specialized btinsert functions.
+ *
+ *		Descend the tree recursively, find the appropriate location for our
+ *		new tuple, and put it there.
+ */
+bool
+_btinsert_dispatch(Relation rel, Datum *values, bool *isnull,
+				   ItemPointer ht_ctid, Relation heapRel,
+				   IndexUniqueCheck checkUnique,
+				   bool indexUnchanged,
+				   IndexInfo *indexInfo)
+{
+	nbts_prep_ctx(rel);
+
+	_bt_specialize(rel);
+
+	return btinsert(rel, values, isnull, ht_ctid, heapRel, checkUnique,
+					indexUnchanged, indexInfo);
 }
 
 /*
@@ -323,6 +347,7 @@ btbeginscan(Relation rel, int nkeys, int norderbys)
 {
 	IndexScanDesc scan;
 	BTScanOpaque so;
+	nbt_opt_specialize(rel);
 
 	/* no order by operators allowed */
 	Assert(norderbys == 0);
@@ -767,6 +792,7 @@ btbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 {
 	Relation	rel = info->index;
 	BTCycleId	cycleid;
+	nbt_opt_specialize(rel);
 
 	/* allocate stats if first time through, else re-use existing struct */
 	if (stats == NULL)

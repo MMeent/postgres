@@ -51,7 +51,8 @@ static bool _bt_compare_scankey_args(IndexScanDesc scan, ScanKey op,
 static bool _bt_fix_scankey_strategy(ScanKey skey, int16 *indoption);
 static void _bt_mark_scankey_required(ScanKey skey);
 
-#include "nbtutils_spec.c"
+#define NBT_FILE "../../backend/access/nbtree/nbtutils_spec.c"
+#include "access/nbtree_spec.h"
 
 /*
  * free a retracement stack made by _bt_search.

@@ -16,6 +16,9 @@
  *-------------------------------------------------------------------------
  */
 
+#define comparetup_index_btree NBTS_FUNCTION(comparetup_index_btree)
+#define comparetup_index_btree_tiebreak NBTS_FUNCTION(comparetup_index_btree_tiebreak)
+
 static int	comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 								   Tuplesortstate *state);
 static int	comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,

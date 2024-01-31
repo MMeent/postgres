@@ -159,7 +159,8 @@ typedef struct BrinSortTuple
 /* Size of the BrinSortTuple, given length of the BrinTuple. */
 #define BRINSORTTUPLE_SIZE(len)		(offsetof(BrinSortTuple, tuple) + (len))
 
-#include "tuplesortvariants_spec.c"
+#define NBT_FILE "../../backend/utils/sort/tuplesortvariants_spec.c"
+#include "access/nbtree_spec.h"
 
 Tuplesortstate *
 tuplesort_begin_heap(TupleDesc tupDesc,
@@ -249,6 +250,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 	MemoryContext oldcontext;
 	TuplesortClusterArg *arg;
 	int			i;
+	nbts_prep_ctx(indexRel);
 
 	Assert(indexRel->rd_rel->relam == BTREE_AM_OID);
 
@@ -361,6 +363,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 	TuplesortIndexBTreeArg *arg;
 	MemoryContext oldcontext;
 	int			i;
+	nbts_prep_ctx(indexRel);
 
 	oldcontext = MemoryContextSwitchTo(base->maincontext);
 	arg = (TuplesortIndexBTreeArg *) palloc(sizeof(TuplesortIndexBTreeArg));
@@ -496,6 +499,7 @@ tuplesort_begin_index_gist(Relation heapRel,
 	MemoryContext oldcontext;
 	TuplesortIndexBTreeArg *arg;
 	int			i;
+	nbts_prep_ctx(indexRel);
 
 	oldcontext = MemoryContextSwitchTo(base->maincontext);
 	arg = (TuplesortIndexBTreeArg *) palloc(sizeof(TuplesortIndexBTreeArg));

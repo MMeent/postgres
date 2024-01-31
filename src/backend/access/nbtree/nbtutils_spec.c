@@ -16,6 +16,9 @@
  *-------------------------------------------------------------------------
  */
 
+#define _bt_check_rowcompare	NBTS_FUNCTION(_bt_check_rowcompare)
+#define _bt_keep_natts			NBTS_FUNCTION(_bt_keep_natts)
+
 static bool _bt_check_rowcompare(ScanKey skey,
 								 IndexTuple tuple, int tupnatts, TupleDesc tupdesc,
 								 ScanDirection dir, bool *continuescan);

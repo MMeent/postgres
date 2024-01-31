@@ -16,6 +16,8 @@
  *-------------------------------------------------------------------------
  */
 
+#define _bt_load NBTS_FUNCTION(_bt_load)
+
 static void _bt_load(BTWriteState *wstate,
 					 BTSpool *btspool, BTSpool *btspool2);
 

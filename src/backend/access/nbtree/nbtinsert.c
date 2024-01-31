@@ -67,7 +67,8 @@ static BlockNumber *_bt_deadblocks(Page page, OffsetNumber *deletable,
 								   int *nblocks);
 static inline int _bt_blk_cmp(const void *arg1, const void *arg2);
 
-#include "nbtinsert_spec.c"
+#define NBT_FILE "../../backend/access/nbtree/nbtinsert_spec.c"
+#include "access/nbtree_spec.h"
 
 /*
  *	_bt_check_unique() -- Check for violation of unique index constraint
@@ -111,6 +112,7 @@ _bt_check_unique(Relation rel, BTInsertState insertstate, Relation heapRel,
 	bool		inposting = false;
 	bool		prevalldead = true;
 	int			curposti = 0;
+	nbts_prep_ctx(rel);
 
 	/* Assume unique until we find a duplicate */
 	*is_unique = true;
@@ -943,6 +945,7 @@ _bt_split(Relation rel, Relation heaprel, BTScanInsert itup_key, Buffer buf,
 	bool		newitemonleft,
 				isleaf,
 				isrightmost;
+	nbts_prep_ctx(rel);
 
 	/*
 	 * origpage is the original page to be split.  leftpage is a temporary
@@ -2143,6 +2146,7 @@ _bt_delete_or_dedup_one_page(Relation rel, Relation heapRel,
 	BTScanInsert itup_key = insertstate->itup_key;
 	Page		page = BufferGetPage(buffer);
 	BTPageOpaque opaque = BTPageGetOpaque(page);
+	nbts_prep_ctx(rel);
 
 	Assert(P_ISLEAF(opaque));
 	Assert(simpleonly || itup_key->heapkeyspace);

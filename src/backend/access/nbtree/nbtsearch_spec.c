@@ -16,6 +16,10 @@
  *-------------------------------------------------------------------------
  */
 
+#define _bt_binsrch		NBTS_FUNCTION(_bt_binsrch)
+#define _bt_moveright	NBTS_FUNCTION(_bt_moveright)
+#define _bt_readpage	NBTS_FUNCTION(_bt_readpage)
+
 static OffsetNumber _bt_binsrch(Relation rel, BTScanInsert key, Buffer buf);
 static Buffer _bt_moveright(Relation rel, Relation heaprel, BTScanInsert key,
 							Buffer buf, bool forupdate, BTStack stack,

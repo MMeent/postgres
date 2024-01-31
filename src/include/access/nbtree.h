@@ -1118,7 +1118,50 @@ typedef struct BTOptions
 #define PROGRESS_BTREE_PHASE_PERFORMSORT_2				4
 #define PROGRESS_BTREE_PHASE_LEAF_LOAD					5
 
-#include "access/nbtree_specfuncs.h"
+#define NBTS_TYPE_CACHED CACHED
+
+/* Generate the specialized function headers */
+#define NBT_FILE "access/nbtree_specfuncs.h"
+#include "access/nbtree_spec.h"
+
+/*
+ * Further specialization helpers and definitions
+ */
+
+typedef enum NBTS_CTX {
+	NBTS_CTX_CACHED = 1, /* Equivalent to unspecialized code */
+} NBTS_CTX;
+
+static inline NBTS_CTX _nbt_spec_context(Relation irel)
+{
+	return NBTS_CTX_CACHED;
+}
+
+#define NBTS_CTX_NAME __nbts_ctx
+
+/* contextual specialization macros */
+#define NBTS_MAKE_CTX(rel) const NBTS_CTX NBTS_CTX_NAME PG_USED_FOR_ASSERTS_ONLY = _nbt_spec_context(rel)
+#define NBTS_SPECIALIZE_NAME(name) ( \
+	AssertMacro((NBTS_CTX_NAME) == NBTS_CTX_CACHED), \
+	NBTS_MAKE_NAME(name, NBTS_TYPE_CACHED) \
+)
+
+extern bool _btinsert_dispatch(Relation rel, Datum *values, bool *isnull,
+							   ItemPointer ht_ctid, Relation heapRel,
+							   IndexUniqueCheck checkUnique,
+							   bool indexUnchanged,
+							   struct IndexInfo *indexInfo);
+
+static inline
+void nbt_opt_specialize(Relation rel)
+{
+	Assert(PointerIsValid(rel));
+	if (unlikely((rel)->rd_indam->aminsert == _btinsert_dispatch))
+	{
+		nbts_prep_ctx(rel);
+		_bt_specialize(rel);
+	}
+}
 
 /*
  * external entry points for btree, in nbtree.c

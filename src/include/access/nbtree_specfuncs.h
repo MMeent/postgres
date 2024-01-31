@@ -1,4 +1,20 @@
 /*
+ * prototypes for functions that are included in nbtree.h
+ */
+
+#define _bt_specialize		NBTS_FUNCTION(_bt_specialize)
+#define btinsert			NBTS_FUNCTION(btinsert)
+#define _bt_dedup_pass		NBTS_FUNCTION(_bt_dedup_pass)
+#define _bt_doinsert		NBTS_FUNCTION(_bt_doinsert)
+#define _bt_search			NBTS_FUNCTION(_bt_search)
+#define _bt_binsrch_insert	NBTS_FUNCTION(_bt_binsrch_insert)
+#define _bt_compare			NBTS_FUNCTION(_bt_compare)
+#define _bt_mkscankey		NBTS_FUNCTION(_bt_mkscankey)
+#define _bt_checkkeys		NBTS_FUNCTION(_bt_checkkeys)
+#define _bt_truncate		NBTS_FUNCTION(_bt_truncate)
+#define _bt_keep_natts_fast	NBTS_FUNCTION(_bt_keep_natts_fast)
+
+/*
  * prototypes for functions in nbtree_spec.h
  */
 extern void _bt_specialize(Relation rel);

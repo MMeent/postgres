@@ -16,6 +16,9 @@
  *-------------------------------------------------------------------------
  */
 
+#define _bt_search_insert NBTS_FUNCTION(_bt_search_insert)
+#define _bt_findinsertloc NBTS_FUNCTION(_bt_findinsertloc)
+
 static BTStack _bt_search_insert(Relation rel, Relation heaprel,
 								 BTInsertState insertstate);
 static OffsetNumber _bt_findinsertloc(Relation rel,

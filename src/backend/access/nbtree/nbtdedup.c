@@ -28,7 +28,8 @@ static void _bt_singleval_fillfactor(Page page, BTDedupState state,
 static bool _bt_posting_valid(IndexTuple posting);
 #endif
 
-#include "nbtdedup_spec.c"
+#define NBT_FILE "../../backend/access/nbtree/nbtdedup_spec.c"
+#include "access/nbtree_spec.h"
 
 /*
  * Perform bottom-up index deletion pass.
@@ -69,6 +70,7 @@ _bt_bottomupdel_pass(Relation rel, Buffer buf, Relation heapRel,
 	TM_IndexDeleteOp delstate;
 	bool		neverdedup;
 	int			nkeyatts = IndexRelationGetNumberOfKeyAttributes(rel);
+	nbts_prep_ctx(rel);
 
 	/* Passed-in newitemsz is MAXALIGNED but does not include line pointer */
 	newitemsz += sizeof(ItemIdData);

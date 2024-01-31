@@ -44,7 +44,8 @@ static Buffer _bt_walk_left(Relation rel, Buffer buf);
 static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir);
 static inline void _bt_initialize_more_data(BTScanOpaque so, ScanDirection dir);
 
-#include "nbtsearch_spec.c"
+#define NBT_FILE "../../backend/access/nbtree/nbtsearch_spec.c"
+#include "access/nbtree_spec.h"
 
 /*
  *	_bt_drop_lock_and_maybe_pin()
@@ -174,6 +175,7 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 	StrategyNumber strat_total;
 	BTScanPosItem *currItem;
 	BlockNumber blkno;
+	nbts_prep_ctx(rel);
 
 	Assert(!BTScanPosIsValid(so->currPos));
 
@@ -987,6 +989,7 @@ _bt_readnextpage(IndexScanDesc scan, BlockNumber blkno, ScanDirection dir)
 	Page		page;
 	BTPageOpaque opaque;
 	bool		status;
+	nbts_prep_ctx(rel);
 
 	if (ScanDirectionIsForward(dir))
 	{
@@ -1377,6 +1380,7 @@ _bt_endpoint(IndexScanDesc scan, ScanDirection dir)
 	BTPageOpaque opaque;
 	OffsetNumber start;
 	BTScanPosItem *currItem;
+	nbts_prep_ctx(rel);
 
 	/*
 	 * Scan down to the leftmost or rightmost leaf page.  This is a simplified

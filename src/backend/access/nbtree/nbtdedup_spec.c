@@ -15,6 +15,8 @@
  *-------------------------------------------------------------------------
  */
 
+#define _bt_do_singleval NBTS_FUNCTION(_bt_do_singleval)
+
 static bool _bt_do_singleval(Relation rel, Page page, BTDedupState state,
 							 OffsetNumber minoff, IndexTuple newitem);
 
