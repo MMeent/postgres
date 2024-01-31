@@ -581,6 +581,7 @@ _bt_compare(Relation rel,
 	int			ncmpkey;
 	int			ntupatts;
 	int32		result;
+	nbts_attiterdeclare(itup);
 
 	Assert(_bt_check_natts(rel, key->heapkeyspace, page, offnum));
 	Assert(key->keysz <= IndexRelationGetNumberOfKeyAttributes(rel));
@@ -611,24 +612,28 @@ _bt_compare(Relation rel,
 	ncmpkey = Min(ntupatts, key->keysz);
 	Assert(key->heapkeyspace || ncmpkey == key->keysz);
 	Assert(!BTreeTupleIsPosting(itup) || key->allequalimage);
+
 	scankey = key->scankeys;
-	for (int i = 1; i <= ncmpkey; i++)
+	nbts_attiterinit(itup, 1, itupdesc);
+
+	nbts_foreachattr(1, ncmpkey)
 	{
 		Datum		datum;
-		bool		isNull;
 
-		datum = index_getattr(itup, scankey->sk_attno, itupdesc, &isNull);
+		datum = nbts_attiter_nextattdatum(itup, itupdesc);
 
-		if (scankey->sk_flags & SK_ISNULL)	/* key is NULL */
+		/* key is NULL */
+		if (scankey->sk_flags & SK_ISNULL)
 		{
-			if (isNull)
+			if (nbts_attiter_curattisnull(itup))
 				result = 0;		/* NULL "=" NULL */
 			else if (scankey->sk_flags & SK_BT_NULLS_FIRST)
 				result = -1;	/* NULL "<" NOT_NULL */
 			else
 				result = 1;		/* NULL ">" NOT_NULL */
 		}
-		else if (isNull)		/* key is NOT_NULL and item is NULL */
+		/* key is NOT_NULL and item is NULL */
+		else if (nbts_attiter_curattisnull(itup))
 		{
 			if (scankey->sk_flags & SK_BT_NULLS_FIRST)
 				result = 1;		/* NOT_NULL ">" NULL */

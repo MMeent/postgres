@@ -56,7 +56,7 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 	int			indnkeyatts;
 	int16	   *indoption;
 	int			tupnatts;
-	int			i;
+	nbts_attiterdeclare(itup);
 
 	itupdesc = RelationGetDescr(rel);
 	indnkeyatts = IndexRelationGetNumberOfKeyAttributes(rel);
@@ -87,7 +87,10 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 	key->scantid = key->heapkeyspace && itup ?
 		BTreeTupleGetHeapTID(itup) : NULL;
 	skey = key->scankeys;
-	for (i = 0; i < indnkeyatts; i++)
+
+	nbts_attiterinit(itup, 1, itupdesc);
+
+	nbts_foreachattr(1, indnkeyatts)
 	{
 		FmgrInfo   *procinfo;
 		Datum		arg;
@@ -98,27 +101,30 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 		 * We can use the cached (default) support procs since no cross-type
 		 * comparison can be needed.
 		 */
-		procinfo = index_getprocinfo(rel, i + 1, BTORDER_PROC);
+		procinfo = index_getprocinfo(rel, nbts_attiter_attnum, BTORDER_PROC);
 
 		/*
 		 * Key arguments built from truncated attributes (or when caller
 		 * provides no tuple) are defensively represented as NULL values. They
 		 * should never be used.
 		 */
-		if (i < tupnatts)
-			arg = index_getattr(itup, i + 1, itupdesc, &null);
+		if (nbts_attiter_attnum <= tupnatts)
+		{
+			arg = nbts_attiter_nextattdatum(itup, itupdesc);
+			null = nbts_attiter_curattisnull(itup);
+		}
 		else
 		{
 			arg = (Datum) 0;
 			null = true;
 		}
-		flags = (null ? SK_ISNULL : 0) | (indoption[i] << SK_BT_INDOPTION_SHIFT);
-		ScanKeyEntryInitializeWithInfo(&skey[i],
+		flags = (null ? SK_ISNULL : 0) | (indoption[nbts_attiter_attnum - 1] << SK_BT_INDOPTION_SHIFT);
+		ScanKeyEntryInitializeWithInfo(&skey[nbts_attiter_attnum - 1],
 									   flags,
-									   (AttrNumber) (i + 1),
+									   (AttrNumber) nbts_attiter_attnum,
 									   InvalidStrategy,
 									   InvalidOid,
-									   rel->rd_indcollation[i],
+									   rel->rd_indcollation[nbts_attiter_attnum - 1],
 									   procinfo,
 									   arg);
 		/* Record if any key attribute is NULL (or truncated) */
@@ -712,6 +718,8 @@ _bt_keep_natts(Relation rel, IndexTuple lastleft, IndexTuple firstright,
 	TupleDesc	itupdesc = RelationGetDescr(rel);
 	int			keepnatts;
 	ScanKey		scankey;
+	nbts_attiterdeclare(lastleft);
+	nbts_attiterdeclare(firstright);
 
 	/*
 	 * _bt_compare() treats truncated key attributes as having the value minus
@@ -723,20 +731,22 @@ _bt_keep_natts(Relation rel, IndexTuple lastleft, IndexTuple firstright,
 
 	scankey = itup_key->scankeys;
 	keepnatts = 1;
-	for (int attnum = 1; attnum <= nkeyatts; attnum++, scankey++)
+
+	nbts_attiterinit(lastleft, 1, itupdesc);
+	nbts_attiterinit(firstright, 1, itupdesc);
+
+	nbts_foreachattr(1, nkeyatts)
 	{
 		Datum		datum1,
 					datum2;
-		bool		isNull1,
-					isNull2;
 
-		datum1 = index_getattr(lastleft, attnum, itupdesc, &isNull1);
-		datum2 = index_getattr(firstright, attnum, itupdesc, &isNull2);
+		datum1 = nbts_attiter_nextattdatum(lastleft, itupdesc);
+		datum2 = nbts_attiter_nextattdatum(firstright, itupdesc);
 
-		if (isNull1 != isNull2)
+		if (nbts_attiter_curattisnull(lastleft) != nbts_attiter_curattisnull(firstright))
 			break;
 
-		if (!isNull1 &&
+		if (!nbts_attiter_curattisnull(lastleft) &&
 			DatumGetInt32(FunctionCall2Coll(&scankey->sk_func,
 											scankey->sk_collation,
 											datum1,
@@ -744,6 +754,7 @@ _bt_keep_natts(Relation rel, IndexTuple lastleft, IndexTuple firstright,
 			break;
 
 		keepnatts++;
+		scankey++;
 	}
 
 	/*
@@ -784,24 +795,27 @@ _bt_keep_natts_fast(Relation rel, IndexTuple lastleft, IndexTuple firstright)
 	TupleDesc	itupdesc = RelationGetDescr(rel);
 	int			keysz = IndexRelationGetNumberOfKeyAttributes(rel);
 	int			keepnatts;
+	nbts_attiterdeclare(lastleft);
+	nbts_attiterdeclare(firstright);
 
 	keepnatts = 1;
-	for (int attnum = 1; attnum <= keysz; attnum++)
+	nbts_attiterinit(lastleft, 1, itupdesc);
+	nbts_attiterinit(firstright, 1, itupdesc);
+
+	nbts_foreachattr(1, keysz)
 	{
 		Datum		datum1,
 					datum2;
-		bool		isNull1,
-					isNull2;
 		Form_pg_attribute att;
 
-		datum1 = index_getattr(lastleft, attnum, itupdesc, &isNull1);
-		datum2 = index_getattr(firstright, attnum, itupdesc, &isNull2);
-		att = TupleDescAttr(itupdesc, attnum - 1);
+		datum1 = nbts_attiter_nextattdatum(lastleft, itupdesc);
+		datum2 = nbts_attiter_nextattdatum(firstright, itupdesc);
+		att = TupleDescAttr(itupdesc, nbts_attiter_attnum - 1);
 
-		if (isNull1 != isNull2)
+		if (nbts_attiter_curattisnull(lastleft) != nbts_attiter_curattisnull(firstright))
 			break;
 
-		if (!isNull1 &&
+		if (!nbts_attiter_curattisnull(lastleft) &&
 			!datum_image_eq(datum1, datum2, att->attbyval, att->attlen))
 			break;
 

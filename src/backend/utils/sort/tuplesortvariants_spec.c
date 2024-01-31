@@ -66,47 +66,54 @@ comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,
 	bool		equal_hasnull = false;
 	int			nkey;
 	int32		compare;
-	Datum		datum1,
-				datum2;
-	bool		isnull1,
-				isnull2;
+	nbts_attiterdeclare(tuple1);
+	nbts_attiterdeclare(tuple2);
 
 	tuple1 = (IndexTuple) a->tuple;
 	tuple2 = (IndexTuple) b->tuple;
 	keysz = base->nKeys;
 	tupDes = RelationGetDescr(arg->index.indexRel);
 
-	if (sortKey->abbrev_converter)
+	if (!sortKey->abbrev_converter)
 	{
-		datum1 = index_getattr(tuple1, 1, tupDes, &isnull1);
-		datum2 = index_getattr(tuple2, 1, tupDes, &isnull2);
-
-		compare = ApplySortAbbrevFullComparator(datum1, isnull1,
-												datum2, isnull2,
-												sortKey);
-		if (compare != 0)
-			return compare;
+		nkey = 2;
+		sortKey++;
+	}
+	else
+	{
+		nkey = 1;
 	}
 
 	/* they are equal, so we only need to examine one null flag */
 	if (a->isnull1)
 		equal_hasnull = true;
 
-	sortKey++;
-	for (nkey = 2; nkey <= keysz; nkey++, sortKey++)
+	nbts_attiterinit(tuple1, nkey, tupDes);
+	nbts_attiterinit(tuple2, nkey, tupDes);
+
+	nbts_foreachattr(nkey, keysz)
 	{
-		datum1 = index_getattr(tuple1, nkey, tupDes, &isnull1);
-		datum2 = index_getattr(tuple2, nkey, tupDes, &isnull2);
+		Datum	datum1,
+				datum2;
+		datum1 = nbts_attiter_nextattdatum(tuple1, tupDes);
+		datum2 = nbts_attiter_nextattdatum(tuple2, tupDes);
 
-		compare = ApplySortComparator(datum1, isnull1,
-									  datum2, isnull2,
-									  sortKey);
+		if (nbts_attiter_attnum == 1)
+			compare = ApplySortAbbrevFullComparator(datum1, nbts_attiter_curattisnull(tuple1),
+													datum2, nbts_attiter_curattisnull(tuple2),
+													sortKey);
+		else
+			compare = ApplySortComparator(datum1, nbts_attiter_curattisnull(tuple1),
+										  datum2, nbts_attiter_curattisnull(tuple2),
+										  sortKey);
+
 		if (compare != 0)
-			return compare;		/* done when we find unequal attributes */
+			return compare;
 
-		/* they are equal, so we only need to examine one null flag */
-		if (isnull1)
+		if (nbts_attiter_curattisnull(tuple1))
 			equal_hasnull = true;
+
+		sortKey++;
 	}
 
 	/*

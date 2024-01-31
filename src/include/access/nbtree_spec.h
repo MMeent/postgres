@@ -20,6 +20,33 @@
  * Specialized files define their functions like usual, with an additional
  * requirement that they #define their function name at the top, with
  * #define funcname NBTS_FUNCTION(funcname).
+ *
+ * Key attribute iteration is specialized through the use of the following
+ * macros:
+ *
+ * - nbts_attiterdeclare(itup)
+ *   Declare the variables required to iterate over the provided IndexTuple's
+ *   key attributes. Many tuples may have their attributes iterated over at the
+ *   same time.
+ * - nbts_attiterinit(itup, initAttNum, tupDesc)
+ *   Initialize the attribute iterator for the provided IndexTuple at
+ *   the provided AttributeNumber.
+ * - nbts_foreachattr(initAttNum, endAttNum)
+ *   Start a loop over the attributes, starting at initAttNum and ending at
+ *   endAttNum, inclusive. It also takes care of truncated attributes.
+ * - nbts_attiter_attnum
+ *   The current attribute number
+ * - nbts_attiter_nextattdatum(itup, tupDesc)
+ *   Updates the attribute iterator state to the next attribute. Returns the
+ *   datum of the next attribute, which might be null (see below)
+ * - nbts_attiter_curattisnull(itup)
+ *   Returns whether the result from the last nbts_attiter_nextattdatum is
+ *   null.
+ * - nbts_context(irel)
+ *   Constructs a context that is used to call specialized functions.
+ *   Note that this is unneeded in paths that are inaccessible to unspecialized
+ *   code paths (i.e. code included through nbtree_spec.h), because that
+ *   always calls the optimized functions directly.
  */
 
 #if defined(NBT_FILE)
@@ -57,9 +84,31 @@
  */
 #define NBTS_TYPE NBTS_TYPE_CACHED
 
+#define nbts_attiterdeclare(itup) \
+	bool	NBTS_MAKE_NAME(itup, isNull)
+
+#define nbts_attiterinit(itup, initAttNum, tupDesc) do {} while (false)
+
+#define nbts_foreachattr(initAttNum, endAttNum) \
+	for (int spec_i = (initAttNum); spec_i <= (endAttNum); spec_i++)
+
+#define nbts_attiter_attnum spec_i
+
+#define nbts_attiter_nextattdatum(itup, tupDesc) \
+	index_getattr((itup), spec_i, (tupDesc), &(NBTS_MAKE_NAME(itup, isNull)))
+
+#define nbts_attiter_curattisnull(itup) \
+	NBTS_MAKE_NAME(itup, isNull)
+
 #include NBT_SPECIALIZE_FILE
 
 #undef NBTS_TYPE
+#undef nbts_attiterdeclare
+#undef nbts_attiterinit
+#undef nbts_foreachattr
+#undef nbts_attiter_attnum
+#undef nbts_attiter_nextattdatum
+#undef nbts_attiter_curattisnull
 
 /*
  * We're done with templating, so restore or create the macros which can be

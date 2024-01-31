@@ -34,8 +34,7 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 				itup2 = NULL;
 	bool		load1;
 	TupleDesc	tupdes = RelationGetDescr(wstate->index);
-	int			i,
-				keysz = IndexRelationGetNumberOfKeyAttributes(wstate->index);
+	int			keysz = IndexRelationGetNumberOfKeyAttributes(wstate->index);
 	SortSupport sortKeys;
 	int64		tuples_done = 0;
 	bool		deduplicate;
@@ -57,7 +56,7 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 		/* Prepare SortSupport data for each column */
 		sortKeys = (SortSupport) palloc0(keysz * sizeof(SortSupportData));
 
-		for (i = 0; i < keysz; i++)
+		for (int i = 0; i < keysz; i++)
 		{
 			SortSupport sortKey = sortKeys + i;
 			ScanKey		scanKey = wstate->inskey->scankeys + i;
@@ -90,21 +89,24 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 			else if (itup != NULL)
 			{
 				int32		compare = 0;
+				nbts_attiterdeclare(itup);
+				nbts_attiterdeclare(itup2);
 
-				for (i = 1; i <= keysz; i++)
+				nbts_attiterinit(itup, 1, tupdes);
+				nbts_attiterinit(itup2, 1, tupdes);
+
+				nbts_foreachattr(1, keysz)
 				{
 					SortSupport entry;
 					Datum		attrDatum1,
 								attrDatum2;
-					bool		isNull1,
-								isNull2;
 
-					entry = sortKeys + i - 1;
-					attrDatum1 = index_getattr(itup, i, tupdes, &isNull1);
-					attrDatum2 = index_getattr(itup2, i, tupdes, &isNull2);
+					entry = sortKeys + nbts_attiter_attnum - 1;
+					attrDatum1 = nbts_attiter_nextattdatum(itup, tupdes);
+					attrDatum2 = nbts_attiter_nextattdatum(itup2, tupdes);
 
-					compare = ApplySortComparator(attrDatum1, isNull1,
-												  attrDatum2, isNull2,
+					compare = ApplySortComparator(attrDatum1, nbts_attiter_curattisnull(itup),
+												  attrDatum2, nbts_attiter_curattisnull(itup2),
 												  entry);
 					if (compare > 0)
 					{
