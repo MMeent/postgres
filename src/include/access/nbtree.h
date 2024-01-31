@@ -16,6 +16,7 @@
 
 #include "access/amapi.h"
 #include "access/itup.h"
+#include "access/itup_attiter.h"
 #include "access/sdir.h"
 #include "access/tableam.h"
 #include "access/xlogreader.h"
@@ -1120,6 +1121,7 @@ typedef struct BTOptions
 
 #define NBTS_TYPE_CACHED CACHED
 #define NBTS_TYPE_SINGLE_KEYATT SINGLE_KEYATT
+#define NBTS_TYPE_UNCACHED UNCACHED
 
 /* Generate the specialized function headers */
 #define NBT_FILE "access/nbtree_specfuncs.h"
@@ -1132,14 +1134,22 @@ typedef struct BTOptions
 typedef enum NBTS_CTX {
 	NBTS_CTX_CACHED = 1, /* Equivalent to unspecialized code */
 	NBTS_CTX_SINGLE_KEYATT, /* Single key column index; cannot handle more */
+	NBTS_CTX_UNCACHED, /* Last key attribute can't use attcachoff */
 } NBTS_CTX;
 
 static inline NBTS_CTX _nbt_spec_context(Relation irel)
 {
+	AttrNumber	nKeyAtts;
+
 	Assert(PointerIsValid(irel));
 
-	if (IndexRelationGetNumberOfKeyAttributes(irel) == 1)
+	nKeyAtts = IndexRelationGetNumberOfKeyAttributes(irel);
+
+	if (nKeyAtts == 1)
 		return NBTS_CTX_SINGLE_KEYATT;
+
+	if (TupleDescAttr(irel->rd_att, nKeyAtts - 1)->attcacheoff < -1)
+		return NBTS_CTX_UNCACHED;
 
 	return NBTS_CTX_CACHED;
 }
@@ -1183,8 +1193,12 @@ static inline Datum _bt_getfirstatt(IndexTuple tuple, TupleDesc tupleDesc,
 	(NBTS_CTX_NAME == NBTS_CTX_SINGLE_KEYATT) ? ( \
 		NBTS_MAKE_NAME(name, NBTS_TYPE_SINGLE_KEYATT) \
 	) : ( \
-		AssertMacro((NBTS_CTX_NAME) == NBTS_CTX_CACHED), \
-		NBTS_MAKE_NAME(name, NBTS_TYPE_CACHED) \
+		((NBTS_CTX_NAME) == NBTS_CTX_UNCACHED) ? ( \
+			NBTS_MAKE_NAME(name, NBTS_TYPE_UNCACHED) \
+		) : ( \
+			AssertMacro((NBTS_CTX_NAME) == NBTS_CTX_CACHED), \
+			NBTS_MAKE_NAME(name, NBTS_TYPE_CACHED) \
+		) \
 	) \
 )
 

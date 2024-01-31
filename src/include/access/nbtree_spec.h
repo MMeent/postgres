@@ -154,6 +154,42 @@
 #undef nbts_attiter_curattisnull
 
 /*
+ * Specialization 3: UNCACHED
+ *
+ * Multiple key columns, but attcacheoff -optimization doesn't apply because
+ * some intermediate or prefixing key attributes that don't have a fixed size
+ * at the type level (i.e. their attlen < 0).
+ */
+#define NBTS_TYPE NBTS_TYPE_UNCACHED
+
+#define nbts_attiterdeclare(itup) \
+	IAttrIterStateData	NBTS_MAKE_NAME(itup, iter)
+
+#define nbts_attiterinit(itup, initAttNum, tupDesc) \
+	index_attiterinit((itup), (initAttNum), (tupDesc), &(NBTS_MAKE_NAME(itup, iter)))
+
+#define nbts_foreachattr(initAttNum, endAttNum) \
+	for (int spec_i = (initAttNum); spec_i <= (endAttNum); spec_i++)
+
+#define nbts_attiter_attnum spec_i
+
+#define nbts_attiter_nextattdatum(itup, tupDesc) \
+	index_attiternext((itup), spec_i, (tupDesc), &(NBTS_MAKE_NAME(itup, iter)))
+
+#define nbts_attiter_curattisnull(itup) \
+	NBTS_MAKE_NAME(itup, iter).isNull
+
+#include NBT_SPECIALIZE_FILE
+
+#undef NBTS_TYPE
+#undef nbts_attiterdeclare
+#undef nbts_attiterinit
+#undef nbts_foreachattr
+#undef nbts_attiter_attnum
+#undef nbts_attiter_nextattdatum
+#undef nbts_attiter_curattisnull
+
+/*
  * We're done with templating, so restore or create the macros which can be
  * used in non-template sources.
  */
