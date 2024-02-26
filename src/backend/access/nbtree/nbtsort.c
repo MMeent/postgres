@@ -1217,7 +1217,7 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 		for (i = 0; i < keysz; i++)
 		{
 			SortSupport sortKey = sortKeys + i;
-			ScanKey		scanKey = wstate->inskey->scankeys + i;
+			ScanKey		scanKey = &(wstate->inskey->scankeys + i)->skdata;
 			int16		strategy;
 
 			sortKey->ssup_cxt = CurrentMemoryContext;

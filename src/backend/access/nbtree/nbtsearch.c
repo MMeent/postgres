@@ -688,7 +688,7 @@ _bt_compare(Relation rel,
 	BTPageOpaque opaque = BTPageGetOpaque(page);
 	IndexTuple	itup;
 	ItemPointer heapTid;
-	ScanKey		scankey;
+	BTScanKey	scankey;
 	int			ncmpkey;
 	int			ntupatts;
 	int32		result;
@@ -728,20 +728,20 @@ _bt_compare(Relation rel,
 		Datum		datum;
 		bool		isNull;
 
-		datum = index_getattr(itup, scankey->sk_attno, itupdesc, &isNull);
+		datum = index_getattr(itup, scankey->skdata.sk_attno, itupdesc, &isNull);
 
-		if (scankey->sk_flags & SK_ISNULL)	/* key is NULL */
+		if (scankey->skdata.sk_flags & SK_ISNULL)	/* key is NULL */
 		{
 			if (isNull)
 				result = 0;		/* NULL "=" NULL */
-			else if (scankey->sk_flags & SK_BT_NULLS_FIRST)
+			else if (scankey->skdata.sk_flags & SK_BT_NULLS_FIRST)
 				result = -1;	/* NULL "<" NOT_NULL */
 			else
 				result = 1;		/* NULL ">" NOT_NULL */
 		}
 		else if (isNull)		/* key is NOT_NULL and item is NULL */
 		{
-			if (scankey->sk_flags & SK_BT_NULLS_FIRST)
+			if (scankey->skdata.sk_flags & SK_BT_NULLS_FIRST)
 				result = 1;		/* NOT_NULL ">" NULL */
 			else
 				result = -1;	/* NOT_NULL "<" NULL */
@@ -756,12 +756,10 @@ _bt_compare(Relation rel,
 			 * to flip the sign of the comparison result.  (Unless it's a DESC
 			 * column, in which case we *don't* flip the sign.)
 			 */
-			result = DatumGetInt32(FunctionCall2Coll(&scankey->sk_func,
-													 scankey->sk_collation,
-													 datum,
-													 scankey->sk_argument));
+			result = DatumGetInt32(_bt_call_skfunc(&scankey->fncallinfo,
+												   datum));
 
-			if (!(scankey->sk_flags & SK_BT_DESC))
+			if (!(scankey->skdata.sk_flags & SK_BT_DESC))
 				INVERT_COMPARE_RESULT(result);
 		}
 
@@ -1162,8 +1160,8 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 				_bt_parallel_done(scan);
 				return false;
 			}
-			memcpy(inskey.scankeys + i, subkey, sizeof(ScanKeyData));
-
+			memcpy(&(inskey.scankeys + i)->skdata, subkey,
+				   sizeof(ScanKeyData));
 			/*
 			 * If the row comparison is the last positioning key we accepted,
 			 * try to add additional keys from the lower-order row members.
@@ -1194,7 +1192,7 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 					if (subkey->sk_flags & SK_ISNULL)
 						break;	/* can't use null keys */
 					Assert(keysz < INDEX_MAX_KEYS);
-					memcpy(inskey.scankeys + keysz, subkey,
+					memcpy(&(inskey.scankeys + keysz)->skdata, subkey,
 						   sizeof(ScanKeyData));
 					keysz++;
 					if (subkey->sk_flags & SK_ROW_END)
@@ -1241,7 +1239,7 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 				FmgrInfo   *procinfo;
 
 				procinfo = index_getprocinfo(rel, cur->sk_attno, BTORDER_PROC);
-				ScanKeyEntryInitializeWithInfo(inskey.scankeys + i,
+				ScanKeyEntryInitializeWithInfo(&(inskey.scankeys + i)->skdata,
 											   cur->sk_flags,
 											   cur->sk_attno,
 											   InvalidStrategy,
@@ -1262,7 +1260,7 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 					elog(ERROR, "missing support function %d(%u,%u) for attribute %d of index \"%s\"",
 						 BTORDER_PROC, rel->rd_opcintype[i], cur->sk_subtype,
 						 cur->sk_attno, RelationGetRelationName(rel));
-				ScanKeyEntryInitialize(inskey.scankeys + i,
+				ScanKeyEntryInitialize(&(inskey.scankeys + i)->skdata,
 									   cur->sk_flags,
 									   cur->sk_attno,
 									   InvalidStrategy,
@@ -1273,6 +1271,9 @@ _bt_first(IndexScanDesc scan, ScanDirection dir)
 			}
 		}
 	}
+
+	for (int j = 0; j < keysz; j++)
+		_bt_adjust_btscankey(inskey.scankeys + j);
 
 	/*----------
 	 * Examine the selected initial-positioning strategy to determine exactly

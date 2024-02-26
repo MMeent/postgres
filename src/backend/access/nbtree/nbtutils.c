@@ -82,7 +82,7 @@ BTScanInsert
 _bt_mkscankey(Relation rel, IndexTuple itup)
 {
 	BTScanInsert key;
-	ScanKey		skey;
+	BTScanKey	skey;
 	TupleDesc	itupdesc;
 	int			indnkeyatts;
 	int16	   *indoption;
@@ -102,7 +102,7 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 	 * scan key.
 	 */
 	key = palloc(offsetof(BTScanInsertData, scankeys) +
-				 sizeof(ScanKeyData) * indnkeyatts);
+				 sizeof(BTScanKeyData) * indnkeyatts);
 	if (itup)
 		_bt_metaversion(rel, &key->heapkeyspace, &key->allequalimage);
 	else
@@ -121,6 +121,7 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 	for (i = 0; i < indnkeyatts; i++)
 	{
 		FmgrInfo   *procinfo;
+		FunctionCallInfo info = &skey->fncallinfo.fncinfo;
 		Datum		arg;
 		bool		null;
 		int			flags;
@@ -144,7 +145,7 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 			null = true;
 		}
 		flags = (null ? SK_ISNULL : 0) | (indoption[i] << SK_BT_INDOPTION_SHIFT);
-		ScanKeyEntryInitializeWithInfo(&skey[i],
+		ScanKeyEntryInitializeWithInfo(&skey[i].skdata,
 									   flags,
 									   (AttrNumber) (i + 1),
 									   InvalidStrategy,
@@ -152,6 +153,16 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 									   rel->rd_indcollation[i],
 									   procinfo,
 									   arg);
+		InitFunctionCallInfoData(*info,
+								 &skey[i].skdata.sk_func,
+								 2,
+								 rel->rd_indcollation[i],
+								 NULL,
+								 NULL);
+
+		info->args[1].isnull = null;
+		info->args[1].value = arg;
+
 		/* Record if any key attribute is NULL (or truncated) */
 		if (null)
 			key->anynullkeys = true;
@@ -1379,6 +1390,7 @@ _bt_checkkeys(IndexScanDesc scan, IndexTuple tuple, int tupnatts,
 	int			keysz;
 	int			ikey;
 	ScanKey		key;
+	BTSKFuncCallData *keyInfo;
 
 	Assert(BTreeTupleGetNAtts(tuple, scan->indexRelation) == tupnatts);
 
@@ -1388,7 +1400,8 @@ _bt_checkkeys(IndexScanDesc scan, IndexTuple tuple, int tupnatts,
 	so = (BTScanOpaque) scan->opaque;
 	keysz = so->numberOfKeys;
 
-	for (key = so->keyData, ikey = 0; ikey < keysz; key++, ikey++)
+	for (key = so->keyData, keyInfo = so->keyInfos, ikey = 0;
+		 ikey < keysz; key++, keyInfo++, ikey++)
 	{
 		Datum		datum;
 		bool		isNull;
@@ -1532,8 +1545,7 @@ _bt_checkkeys(IndexScanDesc scan, IndexTuple tuple, int tupnatts,
 		 */
 		if (!(requiredOppositeDir && haveFirstMatch))
 		{
-			test = FunctionCall2Coll(&key->sk_func, key->sk_collation,
-									 datum, key->sk_argument);
+			test = _bt_call_skfunc(keyInfo, datum);
 		}
 		else
 		{
@@ -2405,7 +2417,7 @@ _bt_keep_natts(Relation rel, IndexTuple lastleft, IndexTuple firstright,
 	int			nkeyatts = IndexRelationGetNumberOfKeyAttributes(rel);
 	TupleDesc	itupdesc = RelationGetDescr(rel);
 	int			keepnatts;
-	ScanKey		scankey;
+	BTScanKey	scankey;
 
 	/*
 	 * _bt_compare() treats truncated key attributes as having the value minus
@@ -2431,8 +2443,8 @@ _bt_keep_natts(Relation rel, IndexTuple lastleft, IndexTuple firstright,
 			break;
 
 		if (!isNull1 &&
-			DatumGetInt32(FunctionCall2Coll(&scankey->sk_func,
-											scankey->sk_collation,
+			DatumGetInt32(FunctionCall2Coll(&scankey->skdata.sk_func,
+											scankey->skdata.sk_collation,
 											datum1,
 											datum2)) != 0)
 			break;

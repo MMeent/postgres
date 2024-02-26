@@ -739,6 +739,46 @@ typedef struct BTStackData
 typedef BTStackData *BTStack;
 
 /*
+ * Helper type for allocating a FunctionCallInfo(2)-sized
+ * piece of memory, instead of using (and cleaning) the stack.
+ * Very useful in e.g. _bt_compare, where this struct would otherwise
+ * repeatedly be constructed and destructed.
+ */
+typedef union BTSKFuncCallData {
+	FunctionCallInfoBaseData fncinfo;
+	char	padding[SizeForFunctionCallInfo(2)];
+} BTSKFuncCallData;
+
+/*
+ * Helper used to eliminate overhead of stack-allocated FunctionCallInfo[2]
+ * in btree descent with the insertion scankey.
+ */
+typedef struct BTScanKeyData {
+	ScanKeyData	skdata; /* Scan key info */
+	BTSKFuncCallData fncallinfo;
+} BTScanKeyData;
+
+typedef BTScanKeyData *BTScanKey;
+
+extern void _bt_copy_skfunccalldata(BTSKFuncCallData *info, ScanKey key);
+
+static inline void
+_bt_adjust_btscankey(BTScanKeyData *skey)
+{
+	_bt_copy_skfunccalldata(&skey->fncallinfo, &skey->skdata);
+}
+
+static inline Datum
+_bt_call_skfunc(BTSKFuncCallData *data, Datum arg)
+{
+	data->fncinfo.args[0].value = arg;
+	data->fncinfo.args[0].isnull = false;
+
+	return FunctionCallInvoke(&data->fncinfo);
+}
+
+
+/*
  * BTScanInsertData is the btree-private state needed to find an initial
  * position for an indexscan, or to insert new tuples -- an "insertion
  * scankey" (not to be confused with a search scankey).  It's used to descend
@@ -790,7 +830,7 @@ typedef struct BTScanInsertData
 	bool		backward;		/* backward index scan? */
 	ItemPointer scantid;		/* tiebreaker for scankeys */
 	int			keysz;			/* Size of scankeys array */
-	ScanKeyData scankeys[INDEX_MAX_KEYS];	/* Must appear last */
+	BTScanKeyData scankeys[INDEX_MAX_KEYS];	/* Must appear last */
 } BTScanInsertData;
 
 typedef BTScanInsertData *BTScanInsert;
@@ -1035,6 +1075,7 @@ typedef struct BTScanOpaqueData
 	bool		qual_ok;		/* false if qual can never be satisfied */
 	int			numberOfKeys;	/* number of preprocessed scan keys */
 	ScanKey		keyData;		/* array of preprocessed scan keys */
+	BTSKFuncCallData *keyInfos;	/* array of fnCI(2)s for scan key compares */
 
 	/* workspace for SK_SEARCHARRAY support */
 	ScanKey		arrayKeyData;	/* modified copy of scan->keyData */

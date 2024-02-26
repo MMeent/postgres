@@ -365,6 +365,16 @@ btbeginscan(Relation rel, int nkeys, int norderbys)
 	else
 		so->keyData = NULL;
 
+	/*
+	 * Pre-allocate scan compare context function data, allowing for faster
+	 * FunctionCallInfo2Coll() because we don't use the stack.
+	 */
+	if (scan->numberOfKeys > 0)
+		so->keyInfos = palloc0(scan->numberOfKeys *
+							   MAXALIGN(sizeof(BTSKFuncCallData)));
+	else
+		so->keyInfos = NULL;
+
 	so->arrayKeyData = NULL;	/* assume no array keys for now */
 	so->arraysStarted = false;
 	so->numArrayKeys = 0;
@@ -472,6 +482,8 @@ btendscan(IndexScanDesc scan)
 	/* Release storage */
 	if (so->keyData != NULL)
 		pfree(so->keyData);
+	if (so->keyInfos != NULL)
+		pfree(so->keyInfos);
 	/* so->arrayKeyData and so->arrayKeys are in arrayContext */
 	if (so->arrayContext != NULL)
 		MemoryContextDelete(so->arrayContext);

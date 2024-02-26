@@ -322,7 +322,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 	for (i = 0; i < base->nKeys; i++)
 	{
 		SortSupport sortKey = base->sortKeys + i;
-		ScanKey		scanKey = indexScanKey->scankeys + i;
+		ScanKey		scanKey = &(indexScanKey->scankeys + i)->skdata;
 		int16		strategy;
 
 		sortKey->ssup_cxt = CurrentMemoryContext;
@@ -407,7 +407,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 	for (i = 0; i < base->nKeys; i++)
 	{
 		SortSupport sortKey = base->sortKeys + i;
-		ScanKey		scanKey = indexScanKey->scankeys + i;
+		ScanKey		scanKey = &(indexScanKey->scankeys + i)->skdata;
 		int16		strategy;
 
 		sortKey->ssup_cxt = CurrentMemoryContext;
