@@ -70,6 +70,12 @@ static bool _bt_tuple_before_array_skeys(IndexScanDesc scan, ScanDirection dir,
 										 int sktrig, bool *scanBehind);
 static bool _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 								   IndexTuple tuple, int sktrig);
+
+static bool _bt_filter_array(IndexScanDesc scan, ScanKey array,
+							 ScanKey rightarg, bool *result);
+static void _bt_merge_output_keys(IndexScanDesc scan, ScanKeyAttr *xform,
+								  int *numberOfEqualCols);
+
 #ifdef USE_ASSERT_CHECKING
 static bool _bt_verify_arrays_bt_first(IndexScanDesc scan, ScanDirection dir);
 static bool _bt_verify_keys_with_arraykeys(IndexScanDesc scan);
@@ -2384,108 +2390,7 @@ _bt_preprocess_keys(IndexScanDesc scan)
 			if (i < numberOfKeys && cur->sk_attno < attno)
 				elog(ERROR, "btree index keys must be ordered by attribute");
 
-			/*
-			 * If = has been specified, all other keys can be eliminated as
-			 * redundant.  If we have a case like key = 1 AND key > 2, we can
-			 * set qual_ok to false and abandon further processing.
-			 *
-			 * We also have to deal with the case of "key IS NULL", which is
-			 * unsatisfiable in combination with any other index condition. By
-			 * the time we get here, that's been classified as an equality
-			 * check, and we've rejected any combination of it with a regular
-			 * equality condition (including those used with array keys); but
-			 * not with other types of conditions.
-			 */
-			if (xform[BTEqualStrategyNumber - 1].skey)
-			{
-				ScanKey		eq = xform[BTEqualStrategyNumber - 1].skey;
-
-				for (j = BTMaxStrategyNumber; --j >= 0;)
-				{
-					ScanKey		chk = xform[j].skey;
-
-					if (!chk || j == (BTEqualStrategyNumber - 1))
-						continue;
-
-					if (eq->sk_flags & SK_SEARCHNULL)
-					{
-						/* IS NULL is contradictory to anything else */
-						so->qual_ok = false;
-						return;
-					}
-
-					if (eq->sk_flags & SK_SEARCHARRAY)
-					{
-						/*
-						 * Don't try to prove redundancy in the event of an
-						 * inequality strategy scan key that looks like it
-						 * might contradict a subset of the array elements
-						 * from some equality scan key's array.  Just keep
-						 * both keys.
-						 *
-						 * Ideally, we'd handle this by adding a preprocessing
-						 * step that eliminates the subset of array elements
-						 * that the inequality ipso facto rules out (and
-						 * eliminates the inequality itself, too).  But that
-						 * seems like a lot of code for such a small benefit
-						 * (_bt_checkkeys is already capable of advancing the
-						 * array keys by a great many elements in one step,
-						 * without requiring too many cycles compared to
-						 * sophisticated preprocessing).
-						 */
-					}
-					else if (_bt_compare_scankey_args(scan, chk, eq, chk,
-													  &test_result))
-					{
-						if (!test_result)
-						{
-							/* keys proven mutually contradictory */
-							so->qual_ok = false;
-							return;
-						}
-						/* else discard the redundant non-equality key */
-						xform[j].skey = NULL;
-						xform[j].ikey = -1;
-					}
-					/* else, cannot determine redundancy, keep both keys */
-				}
-				/* track number of attrs for which we have "=" keys */
-				numberOfEqualCols++;
-			}
-
-			/* try to keep only one of <, <= */
-			if (xform[BTLessStrategyNumber - 1].skey
-				&& xform[BTLessEqualStrategyNumber - 1].skey)
-			{
-				ScanKey		lt = xform[BTLessStrategyNumber - 1].skey;
-				ScanKey		le = xform[BTLessEqualStrategyNumber - 1].skey;
-
-				if (_bt_compare_scankey_args(scan, le, lt, le,
-											 &test_result))
-				{
-					if (test_result)
-						xform[BTLessEqualStrategyNumber - 1].skey = NULL;
-					else
-						xform[BTLessStrategyNumber - 1].skey = NULL;
-				}
-			}
-
-			/* try to keep only one of >, >= */
-			if (xform[BTGreaterStrategyNumber - 1].skey
-				&& xform[BTGreaterEqualStrategyNumber - 1].skey)
-			{
-				ScanKey		gt = xform[BTGreaterStrategyNumber - 1].skey;
-				ScanKey		ge = xform[BTGreaterEqualStrategyNumber - 1].skey;
-
-				if (_bt_compare_scankey_args(scan, ge, gt, ge,
-											 &test_result))
-				{
-					if (test_result)
-						xform[BTGreaterEqualStrategyNumber - 1].skey = NULL;
-					else
-						xform[BTGreaterStrategyNumber - 1].skey = NULL;
-				}
-			}
+			_bt_merge_output_keys(scan, xform, &numberOfEqualCols);
 
 			/*
 			 * Emit the cleaned-up keys into the outkeys[] array, and then
@@ -2692,6 +2597,180 @@ _bt_preprocess_keys(IndexScanDesc scan)
 	}
 
 	so->numberOfKeys = new_numberOfKeys;
+}
+
+static bool
+_bt_filter_array(IndexScanDesc scan, ScanKey array, ScanKey rightarg,
+				 bool *result)
+{
+	Relation	rel = scan->indexRelation;
+	BTScanOpaque so = (BTScanOpaque) scan->opaque;
+	Oid			arrtype,
+				righttype,
+				optype,
+				opcintype,
+				cmp_op;
+	StrategyNumber strat;
+
+	Assert(array->sk_attno == rightarg->sk_attno);
+
+	Assert(array->sk_flags & SK_SEARCHARRAY);
+	Assert(!(rightarg->sk_flags & SK_SEARCHARRAY));
+
+	if (rightarg->sk_flags & SK_ISNULL)
+	{
+		Assert(rightarg->sk_flags & (SK_SEARCHNULL | SK_SEARCHNOTNULL));
+
+		/* NULL searches are fundamentally incompatible with arrays */
+		if (rightarg->sk_flags & SK_SEARCHNULL)
+		{
+			so->qual_ok = false;
+			return false;
+		}
+		else /* (rightarg->sk_flags & SK_SEARCHNOTNULL) */
+		{
+			rightarg->sk_strategy = InvalidStrategy;
+			return true;
+		}
+	}
+
+	opcintype = rel->rd_opcintype[array->sk_attno - 1];
+
+	arrtype = array->sk_subtype;
+	if (!OidIsValid(arrtype))
+		arrtype = opcintype;
+
+	righttype = rightarg->sk_subtype;
+	if (!OidIsValid(righttype))
+		arrtype = opcintype;
+
+	if (arrtype == opcintype && righttype == opcintype)
+	{
+		
+	}
+}
+
+static void
+_bt_merge_output_keys(IndexScanDesc scan, ScanKeyAttr *xform,
+					  int *numberOfEqualCols)
+{
+	BTScanOpaque so = (BTScanOpaque) scan->opaque;
+	bool		test_result;
+	int			j;
+
+	/*
+	 * If = has been specified, all other keys can be eliminated as
+	 * redundant.  If we have a case like key = 1 AND key > 2, we can
+	 * set qual_ok to false and abandon further processing.
+	 *
+	 * We also have to deal with the case of "key IS NULL", which is
+	 * unsatisfiable in combination with any other index condition. By
+	 * the time we get here, that's been classified as an equality
+	 * check, and we've rejected any combination of it with a regular
+	 * equality condition (including those used with array keys); but
+	 * not with other types of conditions.
+	 */
+	if (xform[BTEqualStrategyNumber - 1].skey)
+	{
+		ScanKey		eq = xform[BTEqualStrategyNumber - 1].skey;
+
+		for (j = BTMaxStrategyNumber; --j >= 0;)
+		{
+			ScanKey		chk = xform[j].skey;
+
+			if (!chk || j == (BTEqualStrategyNumber - 1))
+				continue;
+
+			if (eq->sk_flags & SK_SEARCHNULL)
+			{
+				/* IS NULL is contradictory to anything else */
+				so->qual_ok = false;
+				return;
+			}
+
+			if (eq->sk_flags & SK_SEARCHARRAY)
+			{
+				/*
+				 * Don't try to prove redundancy in the event of an
+				 * inequality strategy scan key that looks like it
+				 * might contradict a subset of the array elements
+				 * from some equality scan key's array.  Just keep
+				 * both keys.
+				 *
+				 * Ideally, we'd handle this by adding a preprocessing
+				 * step that eliminates the subset of array elements
+				 * that the inequality ipso facto rules out (and
+				 * eliminates the inequality itself, too).  But that
+				 * seems like a lot of code for such a small benefit
+				 * (_bt_checkkeys is already capable of advancing the
+				 * array keys by a great many elements in one step,
+				 * without requiring too many cycles compared to
+				 * sophisticated preprocessing).
+				 */
+				if (_bt_filter_array(scan, eq, chk, &test_result))
+				{
+					xform[j].skey = NULL;
+					xform[j].ikey = -1;
+				}
+				else
+				{
+					if (!so->qual_ok)
+						return;
+				}
+			}
+			else if (_bt_compare_scankey_args(scan, chk, eq, chk,
+											  &test_result))
+			{
+				if (!test_result)
+				{
+					/* keys proven mutually contradictory */
+					so->qual_ok = false;
+					return;
+				}
+				/* else discard the redundant non-equality key */
+				xform[j].skey = NULL;
+				xform[j].ikey = -1;
+			}
+			/* else, cannot determine redundancy, keep both keys */
+		}
+
+		/* track number of attrs for which we have "=" keys */
+		*numberOfEqualCols += 1;
+	}
+
+	/* try to keep only one of <, <= */
+	if (xform[BTLessStrategyNumber - 1].skey
+		&& xform[BTLessEqualStrategyNumber - 1].skey)
+	{
+		ScanKey		lt = xform[BTLessStrategyNumber - 1].skey;
+		ScanKey		le = xform[BTLessEqualStrategyNumber - 1].skey;
+
+		if (_bt_compare_scankey_args(scan, le, lt, le,
+									 &test_result))
+		{
+			if (test_result)
+				xform[BTLessEqualStrategyNumber - 1].skey = NULL;
+			else
+				xform[BTLessStrategyNumber - 1].skey = NULL;
+		}
+	}
+
+	/* try to keep only one of >, >= */
+	if (xform[BTGreaterStrategyNumber - 1].skey
+		&& xform[BTGreaterEqualStrategyNumber - 1].skey)
+	{
+		ScanKey		gt = xform[BTGreaterStrategyNumber - 1].skey;
+		ScanKey		ge = xform[BTGreaterEqualStrategyNumber - 1].skey;
+
+		if (_bt_compare_scankey_args(scan, ge, gt, ge,
+									 &test_result))
+		{
+			if (test_result)
+				xform[BTGreaterEqualStrategyNumber - 1].skey = NULL;
+			else
+				xform[BTGreaterStrategyNumber - 1].skey = NULL;
+		}
+	}
 }
 
 #ifdef USE_ASSERT_CHECKING
