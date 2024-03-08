@@ -1763,7 +1763,7 @@ _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber offnum,
 			int			truncatt;
 
 			truncatt = BTreeTupleGetNAtts(itup, scan->indexRelation);
-			pstate.prechecked = false;	/* prechecked earlier tuple */
+			pstate.prechecked = false;	/* prechecked didn't cover HIKEY */
 			_bt_checkkeys(scan, &pstate, arrayKeys, itup, truncatt);
 		}
 

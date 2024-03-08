@@ -678,8 +678,10 @@ _bt_merge_arrays(ScanKey skey, FmgrInfo *sortproc, bool reverse,
 				 Datum *elems_next, int nelems_next)
 {
 	BTSortArrayContext cxt;
-	Datum	   *merged = palloc(sizeof(Datum) * Min(nelems_orig, nelems_next));
 	int			merged_nelems = 0;
+#ifdef USE_ASSERT_CHECKING
+	Datum	   *merged = palloc(sizeof(Datum) * Min(nelems_orig, nelems_next));
+#endif
 
 	/*
 	 * Incrementally copy the original array into a temp buffer, skipping over
@@ -694,15 +696,23 @@ _bt_merge_arrays(ScanKey skey, FmgrInfo *sortproc, bool reverse,
 
 		if (bsearch_arg(elem, elems_next, nelems_next, sizeof(Datum),
 						_bt_compare_array_elements, &cxt))
-			merged[merged_nelems++] = *elem;
+		{
+			elems_orig[merged_nelems] = *elem;
+#ifdef USE_ASSERT_CHECKING
+			merged[merged_nelems] = *elem;
+#endif
+			merged_nelems++;
+		}
 	}
 
+#ifdef USE_ASSERT_CHECKING
 	/*
 	 * Overwrite the original array with temp buffer so that we're only left
 	 * with intersecting array elements
 	 */
-	memcpy(elems_orig, merged, merged_nelems * sizeof(Datum));
+	Assert(memcmp(elems_orig, merged, merged_nelems * sizeof(Datum)) == 0);
 	pfree(merged);
+#endif
 
 	return merged_nelems;
 }
@@ -1396,6 +1406,48 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 
 	so->scanBehind = false;		/* reset */
 
+	/*
+	 * Phase 1: Move array keys to more-appropriate positions
+	 * 
+	 * We move the trigger scankey (i.e. the first non-matching scankey that
+	 * the caller found) to the first appropriate array key value. This
+	 * has 6 possible options:
+	 * 
+	 * The scankey is a required equality array key, and
+	 *	 1. The tuple's attribute value is present in the array key
+	 *	 2. The tuple's attribute value is not present in the array key, but
+	 *		the array has a larger value.
+	 *	 3. The tuple's attribute value is not present in the array key, and
+	 *		no larger value exists in the array
+	 * The scankey is not a required equality array key (so: non-required, or
+	 * inequality key, or non-array)
+	 *	 4. The scankey is required and does match the tuple.
+	 *	 5. The scankey is required and does not match the tuple.
+	 *	 6. The scankey is not required.
+	 *
+	 * In case 1, we just update that key, and continue with the next key as
+	 * if that were the next trigger scankey.
+	 * 
+	 * In case 2, we update this array key to the larger value, and set all
+	 * subsequent array keys to their first value.
+	 * 
+	 * In case 3 and 5, we set beyond_end_advance to true, and we set all
+	 * array scankeys starting from this one to their last value.  Phase 2
+	 * will handle the array wraparounds triggered by beyond_end_advance.
+	 * 
+	 * In case 4, we just continue on to the next key.
+	 * 
+	 * In case 6, we ignore the key for the purposes of this system.
+	 * 
+	 * We also gather several flags used later:
+	 *	 - arrays_advanced: Did we update any array keys yet?
+	 *		This is used mostly to detect whether we've found the end of the
+	 *		index scan.
+	 *	 - sktrig_required: Was the trigger scankey a required scankey?
+	 *	 - all_required_satisfied: Could we apply case 1 for all keys?
+	 *	 - so->scanBehind: XXX
+	 *	 - XXX: Document more flags?
+	 */
 	for (int ikey = 0; ikey < so->numberOfKeys; ikey++)
 	{
 		ScanKey		cur = so->keyData + ikey;
@@ -1419,6 +1471,12 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 		}
 		else
 		{
+			/*
+			 * This is an inequality key, so this should never be required in
+			 * both directions.  However, let's try to be very sure about that.
+			 */
+			Assert((cur->sk_flags & (SK_BT_REQBKWD|SK_BT_REQFWD)) !=
+				   (SK_BT_REQBKWD|SK_BT_REQFWD));
 			/*
 			 * Are any inequalities required in the opposite direction only
 			 * present here?
@@ -1688,10 +1746,19 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 	}
 
 	/*
+	 * Phase 2: post-processing
+	 */
+	
+	/*
 	 * Consider if we need to advance the array keys incrementally to finish
 	 * off "beyond end of array element" array advancement.  This is the only
 	 * way that the array keys can be exhausted, which is how top-level index
 	 * scans usually determine that they've run out of tuples to return.
+	 *
+	 * This is similar to adding 1 to 999 and carrying the digits up to 1000:
+	 * If we try to advance an array key that's at it's last element, we wrap
+	 * it around and increment the preceding array key by one. If that too is
+	 * at its last element, wrap that, and increment the one before, etc.
 	 */
 	arrays_exhausted = false;
 	if (beyond_end_advance)
@@ -1765,6 +1832,27 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 		 * here will advance the array keys to the maximum possible extent
 		 * that we can know to be safe based on caller's tuple alone.  If we
 		 * didn't perform this step, then that guarantee wouldn't quite hold.
+		 *
+		 * Example:
+		 * 
+		 * If we were called with the following arguments:
+		 *		ScanKey (a=1 [1,2,3], b < 3)
+		 *		Tuple    a=2, b=4
+		 * Then by now, the ScanKey would look like this:
+		 *		ScanKey (a=2 [1,2,3], b<3)
+		 * This doesn't match the tuple (4 is not less than 3), and also won't
+		 * match more tuples in the scan direction.  The required unsatisfied
+		 * inequality condition "b<3" was previously hidden by the unsatisfied
+		 * array key, but now indicates we should update the array keys again.
+		 * After another round of _bt_advance_array_keys, the key will look
+		 * like this, and thus will be ready for further use:
+		 *		ScanKey (a=3 [1,2,3], b<3)
+		 *
+		 * Note that we will only ever need one additional advancement:  The
+		 * key is already advanced and at least as large as the current tuple
+		 * (after accounting for the scan direction). Advancement will further
+		 * increase this; this is only preparation so that the next scan may
+		 * hit matching tuples (rather than being guaranteed to not match).
 		 */
 		if (unlikely(!pstate->continuescan))
 		{
@@ -1821,7 +1909,7 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 	 * By here we have established that the scan's required arrays were
 	 * advanced, and that they haven't become exhausted.
 	 */
-	Assert(arrays_advanced || !arrays_exhausted);
+	Assert(arrays_advanced && !arrays_exhausted);
 
 	/*
 	 * We generally permit primitive index scans to continue onto the next
