@@ -684,25 +684,41 @@ _bt_merge_arrays(ScanKey skey, FmgrInfo *sortproc, bool reverse,
 #endif
 
 	/*
-	 * Incrementally copy the original array into a temp buffer, skipping over
-	 * any items that are missing from the "next" array
+	 * Sort-merge join the two arrays.
+	 * The arrays are presorted using the same operators, so we can just use
+	 * two cursors 
 	 */
 	cxt.sortproc = sortproc;
 	cxt.collation = skey->sk_collation;
 	cxt.reverse = reverse;
-	for (int i = 0; i < nelems_orig; i++)
+	for (int i = 0, j = 0; i < nelems_orig && j < nelems_next;)
 	{
 		Datum	   *elem = elems_orig + i;
+		Datum	   *next = elems_next + j;
+		int			res;
 
-		if (bsearch_arg(elem, elems_next, nelems_next, sizeof(Datum),
-						_bt_compare_array_elements, &cxt))
+		res = _bt_compare_array_elements(elem, next, &cxt);
+
+		if (res == 0)
 		{
 			elems_orig[merged_nelems] = *elem;
 #ifdef USE_ASSERT_CHECKING
 			merged[merged_nelems] = *elem;
 #endif
 			merged_nelems++;
+			i++;
+			j++;
 		}
+		/*
+		 * XXX: Future efforts may want to use exponential search to find the
+		 * next candidate i or j value, rather than the linear scan used here,
+		 * as it would allow best-case performance to improve from O(N) to
+		 * O(log(N)).
+		 */
+		else if (res < 0)
+			i++;
+		else /* res > 0 */
+			j++;
 	}
 
 #ifdef USE_ASSERT_CHECKING
