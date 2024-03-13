@@ -72,7 +72,7 @@ static bool _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
 								   IndexTuple tuple, int sktrig);
 
 static bool _bt_filter_array(IndexScanDesc scan, ScanKey array,
-							 ScanKey rightarg, bool *result);
+							 ScanKey filter, bool *result);
 static void _bt_merge_output_keys(IndexScanDesc scan, ScanKeyAttr *xform,
 								  int *numberOfEqualCols);
 
@@ -221,7 +221,6 @@ _bt_freestack(BTStack stack)
 		pfree(ostack);
 	}
 }
-
 
 /*
  *	_bt_preprocess_array_keys() -- Preprocess SK_SEARCHARRAY scan keys
@@ -2352,208 +2351,229 @@ _bt_preprocess_keys(IndexScanDesc scan)
 	numberOfEqualCols = 0;
 
 	/*
-	 * Initialize for processing of keys for attr 1.
+	 * Do fast processing of simple multi-column keys, such as (a=10, b=2).
+	 * These types of keys can't have any internal inconsistencies, so
+	 * this preprocessing can be done without the additional setup and
+	 * overhead associated with processing and merging scankeys.
 	 *
-	 * xform[i] points to the currently best scan key of strategy type i+1; it
-	 * is NULL if we haven't yet found such a key for this attr.
+	 * Note: We can't merge this into the complex processing loop because this
+	 * loop depends on us not moving keys around, while the complex processing
+	 * loop does have us moving keys.
 	 */
-	attno = 1;
-	memset(xform, 0, sizeof(xform));
+	for (i = 0; i < numberOfKeys; cur++, i++)
+	{
+		ScanKey outkey;
+		attno = cur->sk_attno;
+		/*
+		 * We can't fast-track row headers (they cross multiple keys) or
+		 * search arrays (those require expensive processing we don't have
+		 * here)
+		 *
+		 * The remaining "special" cases (IS NULL / IS NOT NULL) can be
+		 * handled  just like normal scan keys.
+		 */
+		if (cur->sk_flags & (SK_ROW_HEADER | SK_SEARCHARRAY))
+			break;
+		/*
+		 * We must do more complex processing when we find multiple ScanKeys
+		 * for the same attribute though, so break here if we find that.
+		 */
+		if (i + 1 < numberOfKeys && (cur + 1)->sk_attno == cur->sk_attno)
+			break;
+
+		if (numberOfEqualCols == attno - 1)
+			_bt_mark_scankey_required(cur);
+
+		if (cur->sk_strategy == BTEqualStrategyNumber ||
+			cur->sk_flags & (SK_SEARCHNULL | SK_SEARCHNOTNULL))
+			numberOfEqualCols++;
+
+		outkey = &outkeys[new_numberOfKeys++];
+		memcpy(outkey, cur, sizeof(ScanKeyData));
+	}
 
 	/*
-	 * Loop iterates from 0 to numberOfKeys inclusive; we use the last pass to
-	 * handle after-last-key processing.  Actual exit from the loop is at the
-	 * "break" statement below.
+	 * We're now done with simple processing: either we're at the end of the
+	 * keys, or we have complex processing to do.
+	 * The next section does merging and other processing of complex keys:
+	 * Outer loop handles per-attribute initialization & post-processing
+	 * (i.e. final key consistency checks, cross-strategy scan key merges),
+	 * while the inner loop handles per-key processing (i.e. which are mainly
+	 * same-strategy scan key merges).
 	 */
-	for (i = 0;; cur++, i++)
+	for (; i < numberOfKeys; cur++, i++)
 	{
-		if (i < numberOfKeys)
-		{
-			/* Apply indoption to scankey (might change sk_strategy!) */
-			if (!_bt_fix_scankey_strategy(cur, indoption))
-			{
-				/* NULL can't be matched, so give up */
-				so->qual_ok = false;
-				return;
-			}
-		}
-
 		/*
-		 * If we are at the end of the keys for a particular attr, finish up
-		 * processing and emit the cleaned-up keys.
+		 * Initialize for processing of keys for this attribute.
+		 *
+		 * xform[i] points to the currently best scan key of strategy type i+1; it
+		 * is NULL if we haven't yet found such a key for this attr.
 		 */
-		if (i == numberOfKeys || cur->sk_attno != attno)
+		attno = cur->sk_attno;
+		memset(xform, 0, sizeof(xform));
+
+		for (; i < numberOfKeys && cur->sk_attno == attno; cur++, i++)
 		{
-			int			priorNumberOfEqualCols = numberOfEqualCols;
-
-			/* check input keys are correctly ordered */
-			if (i < numberOfKeys && cur->sk_attno < attno)
-				elog(ERROR, "btree index keys must be ordered by attribute");
-
-			_bt_merge_output_keys(scan, xform, &numberOfEqualCols);
+			/* check strategy this key's operator corresponds to */
+			j = cur->sk_strategy - 1;
 
 			/*
-			 * Emit the cleaned-up keys into the outkeys[] array, and then
-			 * mark them if they are required.  They are required (possibly
-			 * only in one direction) if all attrs before this one had "=".
+			 * Is this an array scan key that _bt_preprocess_array_keys merged
+			 * into an earlier array key against the same attribute?
 			 */
-			for (j = BTMaxStrategyNumber; --j >= 0;)
-			{
-				if (xform[j].skey)
-				{
-					ScanKey		outkey = &outkeys[new_numberOfKeys++];
-
-					memcpy(outkey, xform[j].skey, sizeof(ScanKeyData));
-					if (keyDataMap)
-						keyDataMap[new_numberOfKeys - 1] = xform[j].ikey;
-					if (priorNumberOfEqualCols == attno - 1)
-						_bt_mark_scankey_required(outkey);
-				}
-			}
-
-			/*
-			 * Exit loop here if done.
-			 */
-			if (i == numberOfKeys)
-				break;
-
-			/* Re-initialize for new attno */
-			attno = cur->sk_attno;
-			memset(xform, 0, sizeof(xform));
-		}
-
-		/* check strategy this key's operator corresponds to */
-		j = cur->sk_strategy - 1;
-
-		/*
-		 * Is this an array scan key that _bt_preprocess_array_keys merged
-		 * into an earlier array key against the same attribute?
-		 */
-		if (cur->sk_strategy == InvalidStrategy)
-		{
-			/*
-			 * key is redundant for this primitive index scan (and will be
-			 * redundant during all subsequent primitive index scans)
-			 */
-			Assert(cur->sk_flags & SK_SEARCHARRAY);
-
-			continue;
-		}
-
-		/* if row comparison, push it directly to the output array */
-		if (cur->sk_flags & SK_ROW_HEADER)
-		{
-			ScanKey		outkey = &outkeys[new_numberOfKeys++];
-
-			memcpy(outkey, cur, sizeof(ScanKeyData));
-			if (keyDataMap)
-				keyDataMap[new_numberOfKeys - 1] = i;
-			if (numberOfEqualCols == attno - 1)
-				_bt_mark_scankey_required(outkey);
-
-			/*
-			 * We don't support RowCompare using equality; such a qual would
-			 * mess up the numberOfEqualCols tracking.
-			 */
-			Assert(j != (BTEqualStrategyNumber - 1));
-			continue;
-		}
-
-		/*
-		 * have we seen a scan key for this same attribute and using this same
-		 * operator strategy before now?
-		 */
-		if (xform[j].skey == NULL)
-		{
-			/* nope, so this scan key wins by default (at least for now) */
-			xform[j].skey = cur;
-			xform[j].ikey = i;
-		}
-		else
-		{
-			ScanKey		outkey;
-
-			/*
-			 * Seen one of these before, so keep only the more restrictive key
-			 * if possible
-			 */
-			if (j == (BTEqualStrategyNumber - 1) &&
-				((xform[j].skey->sk_flags & SK_SEARCHARRAY) ||
-				 (cur->sk_flags & SK_SEARCHARRAY)) &&
-				!(cur->sk_flags & SK_SEARCHNULL))
+			if (cur->sk_strategy == InvalidStrategy)
 			{
 				/*
-				 * But don't discard the existing equality key if it's an
-				 * array scan key.  We can't conclude that the key is truly
-				 * redundant with an array.  The only exception is "key IS
-				 * NULL" keys, which eliminate every possible array element
-				 * (and so ipso facto make the whole qual contradictory).
-				 *
-				 * Note: redundant and contradictory array keys will have
-				 * already been dealt with by _bt_merge_arrays in the most
-				 * important cases.  Ideally, _bt_merge_arrays would also be
-				 * able to handle all equality keys as "degenerate single
-				 * value arrays", but for now we're better off leaving it up
-				 * to _bt_checkkeys to advance the array keys.
-				 *
-				 * Note: another possible solution to this problem is to
-				 * perform incremental array advancement here instead.  That
-				 * doesn't seem particularly appealing, since it won't perform
-				 * acceptably during scans that have an extremely large number
-				 * of distinct array key combinations (typically due to the
-				 * presence of multiple arrays, each containing merely a large
-				 * number of distinct elements).
-				 *
-				 * Likely only redundant for a subset of array elements...
+				 * key is redundant for this primitive index scan (and will be
+				 * redundant during all subsequent primitive index scans)
 				 */
-			}
-			else if (!_bt_compare_scankey_args(scan, cur, cur, xform[j].skey,
-											   &test_result))
-			{
-				/*
-				 * Cannot determine redundancy because opfamily doesn't supply
-				 * a complete set of cross-type operators...
-				 */
-			}
-			else
-			{
-				/* Have all we need to determine redundancy */
-				if (test_result)
-				{
-					Assert(!(xform[j].skey->sk_flags & SK_SEARCHARRAY) ||
-						   xform[j].skey->sk_strategy != BTEqualStrategyNumber);
+				Assert(cur->sk_flags & SK_SEARCHARRAY);
 
-					/* New key is more restrictive, and so replaces old key */
-					xform[j].skey = cur;
-					xform[j].ikey = i;
-					continue;
-				}
-				else if (j == (BTEqualStrategyNumber - 1))
-				{
-					/* key == a && key == b, but a != b */
-					so->qual_ok = false;
-					return;
-				}
-				/* else old key is more restrictive, keep it */
+				continue;
+			}
+
+			/* if row comparison, push it directly to the output array */
+			if (cur->sk_flags & SK_ROW_HEADER)
+			{
+				ScanKey		outkey = &outkeys[new_numberOfKeys++];
+
+				memcpy(outkey, cur, sizeof(ScanKeyData));
+				if (keyDataMap)
+					keyDataMap[new_numberOfKeys - 1] = i;
+				if (numberOfEqualCols == attno - 1)
+					_bt_mark_scankey_required(outkey);
+
+				/*
+				 * We don't support RowCompare using equality; such a qual would
+				 * mess up the numberOfEqualCols tracking.
+				 */
+				Assert(j != (BTEqualStrategyNumber - 1));
 				continue;
 			}
 
 			/*
-			 * ...so keep both keys.
-			 *
-			 * We can't determine which key is more restrictive (or we can't
-			 * eliminate an array scan key).  Replace it in xform[j], and push
-			 * the cur one directly to the output array, too.
+			 * have we seen a scan key for this same attribute and using this same
+			 * operator strategy before now?
 			 */
-			outkey = &outkeys[new_numberOfKeys++];
+			if (xform[j].skey == NULL)
+			{
+				/* nope, so this scan key wins by default (at least for now) */
+				xform[j].skey = cur;
+				xform[j].ikey = i;
+			}
+			else
+			{
+				ScanKey		outkey;
 
-			memcpy(outkey, xform[j].skey, sizeof(ScanKeyData));
-			if (keyDataMap)
-				keyDataMap[new_numberOfKeys - 1] = xform[j].ikey;
-			if (numberOfEqualCols == attno - 1)
-				_bt_mark_scankey_required(outkey);
-			xform[j].skey = cur;
-			xform[j].ikey = i;
+				/*
+				 * Seen one of these before, so keep only the more restrictive key
+				 * if possible
+				 */
+				if (j == (BTEqualStrategyNumber - 1) &&
+					((xform[j].skey->sk_flags & SK_SEARCHARRAY) ||
+					 (cur->sk_flags & SK_SEARCHARRAY)) &&
+					!(cur->sk_flags & SK_SEARCHNULL))
+				{
+					/*
+					 * But don't discard the existing equality key if it's an
+					 * array scan key.  We can't conclude that the key is truly
+					 * redundant with an array.  The only exception is "key IS
+					 * NULL" keys, which eliminate every possible array element
+					 * (and so ipso facto make the whole qual contradictory).
+					 *
+					 * Note: redundant and contradictory array keys will have
+					 * already been dealt with by _bt_merge_arrays in the most
+					 * important cases.  Ideally, _bt_merge_arrays would also be
+					 * able to handle all equality keys as "degenerate single
+					 * value arrays", but for now we're better off leaving it up
+					 * to _bt_checkkeys to advance the array keys.
+					 *
+					 * Note: another possible solution to this problem is to
+					 * perform incremental array advancement here instead.  That
+					 * doesn't seem particularly appealing, since it won't perform
+					 * acceptably during scans that have an extremely large number
+					 * of distinct array key combinations (typically due to the
+					 * presence of multiple arrays, each containing merely a large
+					 * number of distinct elements).
+					 *
+					 * Likely only redundant for a subset of array elements...
+					 */
+				}
+				else if (!_bt_compare_scankey_args(scan, cur, cur, xform[j].skey,
+												   &test_result))
+				{
+					/*
+					 * Cannot determine redundancy because opfamily doesn't supply
+					 * a complete set of cross-type operators...
+					 */
+				}
+				else
+				{
+					/* Have all we need to determine redundancy */
+					if (test_result)
+					{
+						Assert(!(xform[j].skey->sk_flags & SK_SEARCHARRAY) ||
+							   xform[j].skey->sk_strategy != BTEqualStrategyNumber);
+	
+						/* New key is more restrictive, and so replaces old key */
+						xform[j].skey = cur;
+						xform[j].ikey = i;
+						continue;
+					}
+					else if (j == (BTEqualStrategyNumber - 1))
+					{
+						/* key == a && key == b, but a != b */
+						so->qual_ok = false;
+						return;
+					}
+					/* else old key is more restrictive, keep it */
+					continue;
+				}
+	
+				/*
+				 * ...so keep both keys.
+				 *
+				 * We can't determine which key is more restrictive (or we can't
+				 * eliminate an array scan key).  Replace it in xform[j], and push
+				 * the cur one directly to the output array, too.
+				 */
+				outkey = &outkeys[new_numberOfKeys++];
+	
+				memcpy(outkey, xform[j].skey, sizeof(ScanKeyData));
+				if (keyDataMap)
+					keyDataMap[new_numberOfKeys - 1] = xform[j].ikey;
+				if (numberOfEqualCols == attno - 1)
+					_bt_mark_scankey_required(outkey);
+				xform[j].skey = cur;
+				xform[j].ikey = i;
+			}
+		}
+
+		int			priorNumberOfEqualCols = numberOfEqualCols;
+
+		/* check input keys are correctly ordered */
+		if (i < numberOfKeys && cur->sk_attno < attno)
+			elog(ERROR, "btree index keys must be ordered by attribute");
+
+		_bt_merge_output_keys(scan, xform, &numberOfEqualCols);
+
+		/*
+		 * Emit the cleaned-up keys into the outkeys[] array, and then
+		 * mark them if they are required.  They are required (possibly
+		 * only in one direction) if all attrs before this one had "=".
+		 */
+		for (j = BTMaxStrategyNumber; --j >= 0;)
+		{
+			if (xform[j].skey)
+			{
+				ScanKey		outkey = &outkeys[new_numberOfKeys++];
+
+				memcpy(outkey, xform[j].skey, sizeof(ScanKeyData));
+				if (keyDataMap)
+					keyDataMap[new_numberOfKeys - 1] = xform[j].ikey;
+				if (priorNumberOfEqualCols == attno - 1)
+					_bt_mark_scankey_required(outkey);
+			}
 		}
 	}
 
@@ -2599,54 +2619,126 @@ _bt_preprocess_keys(IndexScanDesc scan)
 	so->numberOfKeys = new_numberOfKeys;
 }
 
+/*
+ * Filter the array scankey to only contain values matching the 'filter'
+ * argument.
+ *
+ * Returns true if the filter was successfully applied and the array key still
+ * has values left. In all other situations, we return false.
+ *
+ * If the scankeys are inconsistent (e.g. filter is "IS NULL", or with an
+ * array key [1, 2, 4] we get a filter > 8) then we set so->qual_ok to false,
+ * and return false.
+ *
+ * Note that we also return false if we couldn't merge the two keys.  This
+ * is rare, but possible in situations where both the array and the filter
+ * ScanKeys are cross-type ScanKeys and no order proc exists between the two
+ * ScanKey types in the operator family.
+ */
 static bool
-_bt_filter_array(IndexScanDesc scan, ScanKey array, ScanKey rightarg,
+_bt_filter_array(IndexScanDesc scan, ScanKey array, ScanKey filter,
 				 bool *result)
 {
 	Relation	rel = scan->indexRelation;
 	BTScanOpaque so = (BTScanOpaque) scan->opaque;
-	Oid			arrtype,
-				righttype,
+	Oid			arrsubtype,
+				filtertype,
 				optype,
 				opcintype,
-				cmp_op;
+				cmp_op,
+				opfamily;
 	StrategyNumber strat;
+	FmgrInfo	order_op;
+	FmgrInfo   *finfo = NULL;
 
-	Assert(array->sk_attno == rightarg->sk_attno);
+	Assert(array->sk_attno == filter->sk_attno);
 
 	Assert(array->sk_flags & SK_SEARCHARRAY);
-	Assert(!(rightarg->sk_flags & SK_SEARCHARRAY));
+	Assert(!(filter->sk_flags & SK_SEARCHARRAY));
 
-	if (rightarg->sk_flags & SK_ISNULL)
+	if (filter->sk_flags & SK_ISNULL)
 	{
-		Assert(rightarg->sk_flags & (SK_SEARCHNULL | SK_SEARCHNOTNULL));
+		Assert(filter->sk_flags & (SK_SEARCHNULL | SK_SEARCHNOTNULL));
 
 		/* NULL searches are fundamentally incompatible with arrays */
-		if (rightarg->sk_flags & SK_SEARCHNULL)
+		if (filter->sk_flags & SK_SEARCHNULL)
 		{
 			so->qual_ok = false;
 			return false;
 		}
 		else /* (rightarg->sk_flags & SK_SEARCHNOTNULL) */
 		{
-			rightarg->sk_strategy = InvalidStrategy;
+			filter->sk_strategy = InvalidStrategy;
 			return true;
 		}
 	}
 
+	strat = filter->sk_strategy;
+
+	/* Get the relevant OIDs for looking up the order function */
 	opcintype = rel->rd_opcintype[array->sk_attno - 1];
+	opfamily = rel->rd_opfamily[array->sk_attno - 1];
 
-	arrtype = array->sk_subtype;
-	if (!OidIsValid(arrtype))
-		arrtype = opcintype;
+	arrsubtype = array->sk_subtype;
+	if (!OidIsValid(arrsubtype))
+		arrsubtype = opcintype;
 
-	righttype = rightarg->sk_subtype;
-	if (!OidIsValid(righttype))
-		arrtype = opcintype;
+	filtertype = filter->sk_subtype;
+	if (!OidIsValid(filtertype))
+		filtertype = opcintype;
 
-	if (arrtype == opcintype && righttype == opcintype)
+	/*
+	 * If the array type is the physical type, we can reuse the filter's order
+	 * operator.
+	 */
+	if (arrsubtype == opcintype)
 	{
-		
+		finfo = &filter->sk_func;
+	}
+	else
+	{
+		Oid		procid = get_opfamily_proc(opfamily, arrsubtype,
+										   filtertype, BTORDER_PROC);
+		if (!RegProcedureIsValid(procid))
+			return false;
+		finfo = &order_op;
+
+		fmgr_info(procid, finfo);
+	}
+
+	for (int i = 0; i < so->numArrayKeys; i++)
+	{
+		if (so->arrayKeys[i].)
+	}
+	BTArrayKeyInfo *info = so->arrayKeys
+
+	if (strat == BTGreaterEqualStrategyNumber ||
+		strat == BTGreaterStrategyNumber)
+	{
+		int		compare;
+		int		low, mid, high;
+
+		if (strat == BTGreaterStrategyNumber)
+			compare = 1;
+		else
+			compare = 0;
+
+		low = 0;
+
+	}
+	else
+	{
+		int		compare;
+		int		low, mid, high;
+
+		Assert(strat == BTLessEqualStrategyNumber ||
+				   strat == BTLessStrategyNumber);
+
+		if (strat == BTLessStrategyNumber)
+			compare = -1;
+		else
+			compare = 0;
+
 	}
 }
 
