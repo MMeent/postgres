@@ -22,7 +22,11 @@ OBJS = \
 	list.o \
 	makefuncs.o \
 	multibitmapset.o \
+	ndio.o \
+	ndio_binary.o \
+	ndio_text.o \
 	nodeFuncs.o \
+	nodedesc.o \
 	outfuncs.o \
 	params.o \
 	print.o \
@@ -92,6 +96,8 @@ equalfuncs.o: equalfuncs.c equalfuncs.funcs.c equalfuncs.switch.c | node-support
 outfuncs.o: outfuncs.c outfuncs.funcs.c outfuncs.switch.c | node-support-stamp
 queryjumblefuncs.o: queryjumblefuncs.c queryjumblefuncs.funcs.c queryjumblefuncs.switch.c | node-support-stamp
 readfuncs.o:  readfuncs.c readfuncs.funcs.c readfuncs.switch.c | node-support-stamp
+nodedesc.o:  nodedesc.c nodedesc.fields.c nodedesc.nodes.c nodedesc.overrides.c | node-support-stamp
+ndio.o:  ndio.c nodedesc.overrides.c | node-support-stamp
 
 clean:
-	rm -f node-support-stamp $(addsuffix funcs.funcs.c,copy equal out queryjumble read) $(addsuffix funcs.switch.c,copy equal out queryjumble read) nodetags.h
+	rm -f node-support-stamp $(addsuffix funcs.funcs.c,copy equal out queryjumble read) $(addsuffix funcs.switch.c,copy equal out queryjumble read) nodedesc.fields.c nodedesc.nodes.c nodedesc.overrides.c nodetags.h

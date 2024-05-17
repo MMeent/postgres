@@ -133,10 +133,13 @@ my @special_read_write;
 my @nodetag_only;
 
 # types that are copied by straight assignment
-my @scalar_types = qw(
+my @simple_scalar_types = qw(
   bits32 bool char double int int8 int16 int32 int64 long uint8 uint16 uint32 uint64
-  AclMode AttrNumber Cardinality Cost Index Oid RelFileNumber Selectivity Size StrategyNumber SubTransactionId TimeLineID XLogRecPtr
+  AclMode AttrNumber Cardinality Cost Index Oid RelFileNumber Selectivity Size
+  StrategyNumber SubTransactionId TimeLineID XLogRecPtr ParseLoc 
 );
+
+my @scalar_types = @simple_scalar_types;
 
 # collect enum types
 my @enum_types;
@@ -1242,6 +1245,302 @@ close $rff;
 close $ofs;
 close $rfs;
 
+# NodeDesc infrastructure stuff
+
+my %type_map = (
+	Selectivity			=> 'double',
+	Cost				=> 'double',
+	Cardinality			=> 'double',
+	SubTransactionId	=> 'uint32',
+	Oid					=> 'uint32',
+	RelFileNumber		=> 'uint32',
+	Index				=> 'uint32',
+	StrategyNumber		=> 'uint16',
+	AclMode				=> 'uint64',
+	bits8				=> 'uint8',
+	bits16				=> 'uint16',
+	bits32				=> 'uint32',
+	AttrNumber			=> 'int16',
+);
+
+push @output_files, 'nodedesc.nodes.c';
+open my $nd, '>', "$output_path/nodedesc.nodes.c$tmpext" or die $!;
+push @output_files, 'nodedesc.fields.c';
+open my $nf, '>', "$output_path/nodedesc.fields.c$tmpext" or die $!;
+push @output_files, 'nodedesc.overrides.c';
+open my $no, '>', "$output_path/nodedesc.overrides.c$tmpext" or die $!;
+
+printf $nd $header_comment, 'nodedesc.nodes.c';
+printf $nf $header_comment, 'nodedesc.fields.c';
+printf $no $header_comment, 'nodedesc.overrides.c';
+
+my $ser_fields_off = 0;
+my $custom_off = 0;
+
+foreach my $n (@node_types)
+{
+	next if elem $n, @abstract_types;
+	next if elem $n, @nodetag_only;
+
+	my @node_flags = ();
+
+	my $no_write = elem $n, @no_read_write;
+	my $no_read = elem $n, @no_read;
+	if ($no_write)
+	{
+		$no_read = $no_write;
+		push(@node_flags, 'NODEDESC_DISABLE_READ', 'NODEDESC_DISABLE_WRITE');
+	}
+	elsif ($no_read)
+	{
+		push(@node_flags, 'NODEDESC_DISABLE_READ');
+	}
+
+	my $custom_write = (elem $n, @special_read_write);
+	my $custom_read = $custom_write;
+	push (@node_flags, 'NODEDESC_CUSTOM_READ', 'NODEDESC_CUSTOM_WRITE')
+		if $custom_write;
+
+	my $num_ser_fields = 0;
+	my @node_fld_flags = ();
+	my %previous_fields;
+
+	foreach my $f (@{ $node_type_info{$n}->{fields} })
+	{
+		my $t = $node_type_info{$n}->{field_types}{$f};
+		my @a = @{ $node_type_info{$n}->{field_attrs}{$f} };
+		my $fld_type;
+		my $num_custom = 0;
+		my @subflds = ();
+
+		if ($f =~ /[^.]+\.[\.\w]+/)
+		{
+			$num_ser_fields += 1;
+			next;
+		}
+
+		my $array_size_field;
+		my $read_as_field;
+		my $read_write_ignore = 0;
+		my @fld_flags = ();
+		my $fld_arg = '0';
+
+		my $f_no_read = $no_read;
+		my $f_no_write = $no_write;
+
+		foreach my $a (@a)
+		{
+			if ($a =~ /^array_size\(([\w.]+)\)$/)
+			{
+				$array_size_field = $1;
+
+				$fld_arg = "offsetof($n, $f) - offsetof($n, $1)";
+				# insist that we read the array size first!
+				die
+					"array size field $array_size_field for field $n.$f must precede $f\n"
+					if (!$previous_fields{$array_size_field} && !$no_read);
+			}
+			elsif ($a =~ /^read_as\(([\w.]+)\)$/)
+			{
+				$read_as_field = $1;
+			}
+			elsif ($a eq 'read_write_ignore')
+			{
+				$read_write_ignore = 1;
+				$f_no_read = 1;
+				$f_no_write = 1;
+				push (@fld_flags, 'NODEDESC_DISABLE_WRITE', 'NODEDESC_DISABLE_READ');
+				push (@node_fld_flags, 'NODEDESC_DISABLE_READ')
+					if !(elem 'NODEDESC_DISABLE_READ', @node_fld_flags);
+				push (@node_fld_flags, 'NODEDESC_DISABLE_WRITE')
+					if !(elem 'NODEDESC_DISABLE_WRITE', @node_fld_flags);
+			}
+			elsif ($a eq 'no_read' && !$no_read)
+			{
+				$f_no_read = 1;
+				push (@fld_flags, 'NODEDESC_DISABLE_READ');
+				push (@node_fld_flags, 'NODEDESC_DISABLE_READ')
+					if !(elem 'NODEDESC_DISABLE_READ', @node_fld_flags);
+			}
+			elsif ($a eq 'no_write' && !$no_write)
+			{
+				$f_no_write = 1;
+				push (@fld_flags, 'NODEDESC_DISABLE_WRITE');
+				push (@node_fld_flags, 'NODEDESC_DISABLE_WRITE')
+					if !(elem 'NODEDESC_DISABLE_WRITE', @node_fld_flags);
+			}
+		}
+
+		$previous_fields{$f} = 1;
+
+		if (elem $t, @simple_scalar_types)
+		{
+			if (exists $type_map{$t})
+			{
+				my $tt = $type_map{$t};
+				$fld_type = uc "NFT_$tt";
+			}
+			else
+			{
+				$fld_type = uc "NFT_$t";
+			}
+
+			push (@subflds, {
+				type => $fld_type,
+				name => $f,
+			});
+		}
+		elsif ($t eq 'QualCost')
+		{
+			push (@subflds, {
+				type => 'NFT_DOUBLE',
+				name => "$f.startup",
+			});
+			push (@subflds, {
+				type => 'NFT_DOUBLE',
+				name => "$f.per_tuple",
+			});
+		}
+		elsif ($t eq 'char*')
+		{
+			push (@subflds, {
+				type => 'NFT_CSTRING',
+				name => $f,
+			});
+		}
+		elsif ($t eq 'Bitmapset*' || $t eq 'Relids')
+		{
+			push (@subflds, {
+				type => 'NFT_BITMAPSET',
+				name => $f,
+			});
+		}
+		elsif ($t eq 'LIST*')
+		{
+			push (@subflds, {
+				type => 'NFT_NODE',
+				name => $f,
+			});
+		}
+		elsif (elem $t, @enum_types)
+		{
+			push (@subflds, {
+				type => 'NFT_ENUM',
+				name => $f,
+			});
+		}
+		elsif ($t =~ /^(\w+)(\*|\[\w+\])$/ and elem $1, @simple_scalar_types)
+		{
+			die "no array size defined for $n.$f of type $t\n"
+				unless (defined $array_size_field) or ($f_no_read && $f_no_write);
+
+			if (exists $type_map{$1})
+			{
+				my $tt = $type_map{$1};
+				$fld_type = uc "NFT_$tt";
+			}
+			else
+			{
+				$fld_type = uc "NFT_$1";
+			}
+
+			push (@subflds, {
+				type => uc "($fld_type | NFT_ARRAYTYPE)",
+				name => $f,
+			});
+		}
+		elsif (($t =~ /^(\w+)\*$/ or $t =~ /^struct\s+(\w+)\*$/)
+			and elem $1, @node_types)
+		{
+			die
+				"node type \"$1\" lacks write support, which is required for struct \"$n\" field \"$f\"\n"
+				if (elem $1, @no_read_write or elem $1, @nodetag_only)
+					and !($no_write or $f_no_write);
+
+			die
+				"node type \"$1\" lacks read support, which is required for struct \"$n\" field \"$f\"\n"
+				if (elem $1, @no_read or elem $1, @nodetag_only)
+					and !($no_read or $f_no_read);
+
+			push (@subflds, {
+				type => "NFT_NODE",
+				name => $f,
+			});
+		}
+		elsif (($t =~ /^(\w+)\*\*$/ or $t =~ /^struct\s+(\w+)\*\*$/)
+			and elem($1, @node_types))
+		{
+			die "no array size defined for $n.$f of type $t\n"
+				unless (defined $array_size_field) or ($f_no_read && $f_no_write);
+
+			die
+				"node type \"$1\" lacks write support, which is required for struct \"$n\" field \"$f\"\n"
+				if (elem $1, @no_read_write or elem $1, @nodetag_only)
+					and !($no_write or $f_no_write);
+
+			die
+				"node type \"$1\" lacks read support, which is required for struct \"$n\" field \"$f\"\n"
+				if (elem $1, @no_read or elem $1, @nodetag_only)
+					and !($no_read or $f_no_read);
+
+			push (@subflds, {
+				type => "NFT_NODE | NFT_ARRAYTYPE",
+				name => $f,
+			});
+		}
+		else
+		{
+			push (@subflds, {
+				type => "NFT_UNDEFINED /* ($t) */",
+				name => $f,
+			});
+		}
+
+		my $fld_flags = '0';
+		$fld_flags = join('|', @fld_flags)
+			if @fld_flags;
+
+		foreach my $fld (@subflds)
+		{
+			my $sf = $fld->{name};
+			my $st = $fld->{type};
+
+			print $nf "MakeNodeFieldDesc($n, $sf, $st, $num_ser_fields, $fld_flags, 0, $fld_arg)\n";
+
+			$num_ser_fields += 1;
+		}
+	}
+	my $node_custom_off = $custom_off;
+	if ($custom_write)
+	{
+		print $no "CustomNodeWrite($n)\n";
+		$custom_off++;
+	}
+	if ($custom_read)
+	{
+		print $no "CustomNodeRead($n)\n";
+		$custom_off++;
+	}
+
+	die "Too many fields in one Node: $num_ser_fields > 255"
+		if ($num_ser_fields > 255);
+
+	my $node_flags = '0';
+	my $fld_flags = '0';
+
+	$node_flags = join('|', @node_flags)
+		if @node_flags;
+
+	$fld_flags = join('|', @node_flags)
+		if @node_flags;
+	
+	print $nd "MakeNodeDesc($n, $num_ser_fields, $ser_fields_off, $node_flags, $fld_flags, $node_custom_off)\n";
+	$ser_fields_off += $num_ser_fields;
+}
+
+close $nd;
+close $nf;
+close $no;
 
 # queryjumblefuncs.c
 

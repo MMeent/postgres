@@ -6,6 +6,8 @@ backend_sources += files(
   'list.c',
   'makefuncs.c',
   'multibitmapset.c',
+  'ndio_binary.c',
+  'ndio_text.c',
   'nodeFuncs.c',
   'params.c',
   'print.c',
@@ -19,6 +21,8 @@ backend_sources += files(
 nodefunc_sources = files(
   'copyfuncs.c',
   'equalfuncs.c',
+  'ndio.c',
+  'nodedesc.c',
   'queryjumblefuncs.c',
   'outfuncs.c',
   'readfuncs.c',
