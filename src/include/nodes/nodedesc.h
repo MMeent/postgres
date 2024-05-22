@@ -20,7 +20,6 @@ typedef enum NodeFieldType {
 	NFT_INT16,
 	NFT_INT32,
 	NFT_LONG,
-	NFT_UINT,
 	NFT_UINT16,
 	NFT_UINT32,
 	NFT_UINT64,
