@@ -151,23 +151,25 @@ my @abstract_types = qw(Node);
 # is not in a header file.  We generate node tags for them, but
 # they otherwise don't participate in node support.
 my @extra_tags = qw(
-  IntList OidList XidList
   AllocSetContext GenerationContext SlabContext BumpContext
   TIDBitmap
   WindowObjectData
 );
 
-# This is a regular node, but we skip parsing it from its header file
+# List is a regular node, but we skip parsing it from its header file
 # since we won't use its internal structure here anyway.
-push @node_types, qw(List);
+# IntList, OidList and XidLists are aliases of List, so the same applies
+# to them.  However, because they have specialized IO, we still have them
+# registered separately.
+push @node_types, qw(List IntList OidList XidList);
 # Lists are specially treated in all five support files, too.
 # (Ideally we'd mark List as "special copy/equal" not "no copy/equal".
 # But until there's other use-cases for that, just hot-wire the tests
 # that would need to distinguish.)
-push @no_copy, qw(List);
-push @no_equal, qw(List);
-push @no_query_jumble, qw(List);
-push @special_read_write, qw(List);
+push @no_copy, qw(List IntList OidList XidList);
+push @no_equal, qw(List IntList OidList XidList);
+push @no_query_jumble, qw(List IntList OidList XidList);
+push @special_read_write, qw(List IntList OidList XidList);
 
 # Nodes with custom copy/equal implementations are skipped from
 # .funcs.c but need case statements in .switch.c.
@@ -1296,7 +1298,8 @@ foreach my $n (@node_types)
 		push(@node_flags, 'NODEDESC_DISABLE_READ');
 	}
 
-	my $custom_write = (elem $n, @special_read_write);
+	my $custom_write = (elem $n, @special_read_write) || 
+		(elem $n, @custom_read_write);
 	my $custom_read = $custom_write;
 	push (@node_flags, 'NODEDESC_CUSTOM_READ', 'NODEDESC_CUSTOM_WRITE')
 		if $custom_write;
@@ -1312,12 +1315,6 @@ foreach my $n (@node_types)
 		my $fld_type;
 		my $num_custom = 0;
 		my @subflds = ();
-
-		if ($f =~ /[^.]+\.[\.\w]+/)
-		{
-			$num_ser_fields += 1;
-			next;
-		}
 
 		my $array_size_field;
 		my $read_as_field;
@@ -1411,7 +1408,7 @@ foreach my $n (@node_types)
 		elsif ($t eq 'Bitmapset*' || $t eq 'Relids')
 		{
 			push (@subflds, {
-				type => 'NFT_BITMAPSET',
+				type => 'NFT_NODE',
 				name => $f,
 			});
 		}
@@ -1511,14 +1508,14 @@ foreach my $n (@node_types)
 		}
 	}
 	my $node_custom_off = $custom_off;
-	if ($custom_write)
-	{
-		print $no "CustomNodeWrite($n)\n";
-		$custom_off++;
-	}
 	if ($custom_read)
 	{
 		print $no "CustomNodeRead($n)\n";
+		$custom_off++;
+	}
+	if ($custom_write)
+	{
+		print $no "CustomNodeWrite($n)\n";
 		$custom_off++;
 	}
 

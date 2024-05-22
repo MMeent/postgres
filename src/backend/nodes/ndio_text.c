@@ -16,6 +16,7 @@
 
 #include "postgres.h"
 
+#include "nodes/ndio.h"
 #include "nodes/nodes.h"
 #include "nodes/nodedesc.h"
 #include "nodes/plannodes.h"
@@ -26,10 +27,28 @@
 
 #define CHECK_CAN_READ(info, length, ...) \
 	if ((info)->len - (info)->cursor < (length)) \
-		elog(ERROR, __VA_ARGS__)
+		ereport(PANIC, \
+				errbacktrace(), \
+				errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),\
+				errmsg_internal(__VA_ARGS__))
 
 #define CHECK_CAN_READ_FLD(info, length, desc) \
 	CHECK_CAN_READ(info, length, "Error reading field %s: out of data", (desc)->nfd_name)
+
+static inline void
+skip_whitespace(StringInfo from)
+{
+	int			cursor = from->cursor;
+	char	   *ptr = from->data + cursor;
+	while (cursor < from->len && (*ptr == ' ' || *ptr == '\t' ||
+								  *ptr == '\n'))
+	{
+		cursor++;
+		ptr++;
+	}
+
+	from->cursor = cursor;
+}
 
 static char *
 nullable_string(const char *token, int length)
@@ -47,11 +66,13 @@ nullable_string(const char *token, int length)
 static const char *
 read_next_token(StringInfo from, int *len)
 {
-	char	   *local_str = from->data;
+	char	   *local_str;
 	char	   *ret_str;
+	const char *limit = from->data + from->len;
 
-	while (*local_str == ' ' || *local_str == '\n' || *local_str == '\t')
-		local_str++;
+	skip_whitespace(from);
+
+	local_str = from->data + from->cursor;
 
 	if (*local_str == '\0')
 	{
@@ -62,20 +83,28 @@ read_next_token(StringInfo from, int *len)
 
 	ret_str = local_str;
 
-	while (*local_str != '\0' &&
-		   *local_str != ' ' && *local_str != '\n' &&
-		   *local_str != '\t' &&
-		   *local_str != '(' && *local_str != ')' &&
-		   *local_str != '{' && *local_str != '}')
+	while ((*local_str != '\0' &&
+			*local_str != ' ' && *local_str != '\n' &&
+			*local_str != '\t' &&
+			*local_str != '(' && *local_str != ')' &&
+			*local_str != '{' && *local_str != '}') &&
+			local_str < limit)
 	{
 		if (*local_str == '\\' && local_str[1] != '\0')
 			local_str += 2;
 		else
 			local_str++;
 	}
+	if (local_str == limit)
+	{
+		ereport(PANIC,
+				errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				errmsg_internal("Unexpected EOF while reading Node data"));
+	}
 
 	*len = (local_str - ret_str);
 	from->cursor = (local_str - from->data);
+
 	return ret_str;
 }
 
@@ -84,8 +113,8 @@ CHECK_FLD_IS_COMPATIBLE(NodeFieldDesc fdesc)
 {
 	if (fdesc->nfd_flags & NODEDESC_DISABLE_WRITE)
 		Assert(fdesc->nfd_flags & NODEDESC_DISABLE_READ);
-
 }
+
 static inline void
 CHECK_NODE_IS_COMPATIBLE(NodeDesc desc)
 {
@@ -96,8 +125,8 @@ CHECK_NODE_IS_COMPATIBLE(NodeDesc desc)
 static bool
 next_node_field_is(StringInfo from, NodeFieldDesc desc)
 {
-	while (from->data[from->cursor] == ' ' && from->cursor < from->len)
-		from->cursor++;
+	skip_whitespace(from);
+
 	/* next up is not a field (which would be indicated by ":fieldname ") */
 	if (from->len < from->cursor + 2 + desc->nfd_namelen ||
 		from->data[from->cursor] != ':' ||
@@ -115,20 +144,27 @@ next_node_field_is(StringInfo from, NodeFieldDesc desc)
 static inline void
 skip_past_next_token_character(StringInfo from, char expect)
 {
-	int			cursor = from->cursor;
-	char	   *ptr = from->data + cursor;
+	char	   *ptr;
 
-	while (cursor < from->len && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n'))
-	{
-		ptr++;
-		cursor++;
-	}
-	
+	skip_whitespace(from);
+
+	if (from->len <= from->cursor)
+		ereport(PANIC,
+				errbacktrace(),
+				errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				errmsg_internal("Unexpected EOF while deserializing Node data"));
+
+	ptr = from->data + from->cursor;
+
 	if (*ptr != expect)
-		elog(ERROR, "Unexpected character %02x, expected %02x",
-			 *ptr, expect);
-	cursor++;
-	from->cursor = cursor;
+		ereport(PANIC,
+				errbacktrace(),
+				errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				errmsg_internal("Unexpected character while deserializing nodes"),
+				errdetail_internal("Expected character %02x, but got %02x",
+								   expect, *ptr));
+
+	from->cursor += sizeof(char);
 }
 
 /*---
@@ -148,8 +184,9 @@ tnr_read_tag(StringInfo from, uint32 flags, NodeTag *out)
 	int			name_len;
 	NodeDesc	desc;
 
-	if (from->len - cursor <= 2)
-		elog(ERROR, "Out of data when reading node");
+	CHECK_CAN_READ(from, 2, "Out of data when reading node tag");
+
+	skip_whitespace(from);
 
 	/* "<>", thus NULL */
 	if (from->data[cursor] == '<' && from->data[cursor + 1] == '>')
@@ -158,106 +195,142 @@ tnr_read_tag(StringInfo from, uint32 flags, NodeTag *out)
 		*out = T_Invalid;
 		return false;
 	}
-	
-	if (from->data[cursor] != '{')
-	{
-		elog(ERROR, "Unexpected character '%c' at start of node",
-			 from->data[cursor]);
-	}
 
-	cursor++;
+	skip_past_next_token_character(from, '{');
+
+	cursor = from->cursor;
+
 	name_start = name_end = &from->data[cursor];
 
 	while (*name_end != ' ' && *name_end != '\0' &&
 		   *name_end != '\t' && *name_end != '\n' &&
-		   *name_end != '}')
+		   *name_end != '}' && name_end < from->data + from->len)
 		name_end++;
 
 	if (name_end == name_start)
-		elog(ERROR, "Can't read type name at start of node");
+		ereport(PANIC,
+				errbacktrace(),
+				errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				errmsg_internal("Unexpected EOF while deserializing Node data"));
 
 	name_len = name_end - name_start;
 
 	desc = GetNodeDescByNodeName(name_start, name_len);
 
 	if (desc == NULL)
-		elog(ERROR, "Unknown node type name");
+	{
+		char	buf[NAMEDATALEN];
+		strncpy(buf, name_start, Min(name_len, NAMEDATALEN - 1));
+
+		ereport(PANIC,
+				errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				errbacktrace(),
+				errmsg_internal("Unknown node type name"),
+				errdetail_internal("Node type name %s is not registered", buf));
+	}
 
 	*out = desc->nd_nodetag;
 	from->cursor += name_len;
+
 	return true;
 }
 
 static void
-tnr_finish_node(StringInfo from, NodeDesc desc,
+tnr_finish_node(StringInfo from, NodeDesc desc, int final_field,
 				uint32 flags)
 {
-	char		final;
+	skip_past_next_token_character(from, '}');
+}
 
-	CHECK_CAN_READ(from, sizeof(char), "Out of data finishing a node");
-	final = from->data[from->cursor];
+static bool
+tnr_start_field(StringInfo from, NodeFieldDesc desc, uint32 flags)
+{
+	return next_node_field_is(from, desc);
+}
 
-	if (unlikely(final != '}'))
-		elog(ERROR, "Unexpected byte %02x at end of node %s during deserialization",
-			 final, desc->nd_name);
+static bool
+tnr_start_array(StringInfo from, uint32 flags)
+{
+	char	   *ptr;
 
-	from->cursor += sizeof(char);
+	skip_whitespace(from);
+
+	ptr = from->data + from->cursor;
+
+	/* both NULL and begin+end take up 2 bytes minimum */
+	CHECK_CAN_READ(from, 2, "Out of data while reading array start");
+
+	/* "<>", thus NULL */
+	if (*ptr == '<' && *(ptr + 1) == '>')
+	{
+		from->cursor += 2;
+		return false;
+	}
+
+	skip_past_next_token_character(from, '(');
+
+	return true;
 }
 
 static void
-tnfr_CSTRING(StringInfo from, NodeFieldDesc desc,
-			 void *field, uint32 flags)
+tnr_array_value_separator(StringInfo from, uint32 flags)
+{
+	skip_whitespace(from);
+}
+
+static void
+tnr_end_array(StringInfo from, uint32 flags)
+{
+	skip_past_next_token_character(from, ')');
+}
+
+static void
+tnr_end_field(StringInfo from, uint32 flags)
+{
+	return;
+}
+
+static bool
+tnvr_CSTRING(StringInfo from, void *field, uint32 flags)
 {
 	char	  **tfield = (char **) field;
 	const char *data_start;
 	int			len;
 
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	if (!next_node_field_is(from, desc))
-	{
-		*tfield = NULL;
-		return;
-	}
-
 	data_start = read_next_token(from, &len);
 
 	*tfield = nullable_string(data_start, len);
+	return true;
 }
 
-static void
-tnfr_array_CSTRING(StringInfo from, NodeFieldDesc desc,
-				   void *field, uint32 flags)
+static bool
+tnfr_CSTRING(StringInfo from, NodeFieldDesc desc,
+			 void *field, uint32 flags)
 {
-	int			n = *(int *) (((char *) field) + desc->nfd_arr_len_off);
-	char	 ***tfield = (char ***) field;
+	char	  **tfield = (char **) field;
 
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
 	if (!next_node_field_is(from, desc))
 	{
 		*tfield = NULL;
-		return;
+		return false;
 	}
-	*tfield = palloc(sizeof(char *) * n);
 
-	skip_past_next_token_character(from, '(');
-	for (int i = 0; i < n; i++)
-	{
-		int len;
-		const char *data_start;
-		if (from->cursor == from->len)
-			elog(ERROR, "Out of data while reading Node field %s",
-				 desc->nfd_name);
-
-		data_start = read_next_token(from, &len);
-
-		(*tfield)[i] = nullable_string(data_start, len);
-	}
-	skip_past_next_token_character(from, ')');
+	return tnvr_CSTRING(from, field, flags);
 }
 
-static void
+static bool
+tnvr_NODE(StringInfo from, void *field, uint32 flags)
+{
+	Node	  **tfield = (Node **) field;
+
+	*tfield = ReadNode(from, TextNodeReader, flags);
+
+	return true;
+}
+
+static bool
 tnfr_NODE(StringInfo from, NodeFieldDesc desc,
 		  void *field, uint32 flags)
 {
@@ -268,116 +341,59 @@ tnfr_NODE(StringInfo from, NodeFieldDesc desc,
 	if (!next_node_field_is(from, desc))
 	{
 		*tfield = NULL;
-		return;
+		return false;
 	}
 
-	*tfield = ReadNode(from, TextNodeReader, flags);
+	return tnvr_NODE(from, field, flags);
 }
-
-static void
-tnfr_array_NODE(StringInfo from, NodeFieldDesc desc,
-				void *field, uint32 flags)
-{
-	int			n = *(int *) (((char *) field) + desc->nfd_arr_len_off);
-	Node	 ***tfield = (Node ***) field;
-	Node	  **arr;
-
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	if (!next_node_field_is(from, desc))
-	{
-		*tfield = NULL;
-		return;
-	}
-
-	*tfield = arr = palloc(sizeof(Node *) * n);
-
-	skip_past_next_token_character(from, '(');
-	for (int i = 0; i < n; i++)
-	{
-		if (from->cursor == from->len)
-			elog(ERROR, "Out of data while reading Node field %s",
-				 desc->nfd_name);
-
-		arr[i] = ReadNode(from, TextNodeReader, flags);
-	}
-	skip_past_next_token_character(from, ')');
-}
-
 
 #define TextScalarFieldReader(_type_, _uctype_, type_default, parseTok) \
-static void \
-tnfr_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
-				uint32 flags) \
+static bool \
+tnvr_##_uctype_(StringInfo from, void *field, uint32 flags) \
 { \
 	_type_	   *tfield = (_type_ *) field; \
 	const char *data_start; \
 	int			len; \
+	\
+	data_start = read_next_token(from, &len); \
+	\
+	*tfield = parseTok(data_start); \
+	return true; \
+} \
+static bool \
+tnfr_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
+				uint32 flags) \
+{ \
+	_type_	   *tfield = (_type_ *) field; \
 	\
 	CHECK_FLD_IS_COMPATIBLE(desc); \
 	\
 	if (!next_node_field_is(from, desc)) \
 	{ \
 		*tfield = type_default; \
-		return; \
-	} \
-	data_start = read_next_token(from, &len); \
-	\
-	*tfield = parseTok(data_start); \
-} \
-static void \
-tnfr_array_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
-					  uint32 flags) \
-{ \
-	_type_	  **tfield = (_type_ **) field; \
-	int			arr_len; \
-	int			arr_size; \
-	_type_	   *arr; \
-	\
-	CHECK_FLD_IS_COMPATIBLE(desc); \
-	\
-	if (!next_node_field_is(from, desc)) \
-	{ \
-		*tfield = NULL; \
-		return; \
+		return false; \
 	} \
 	\
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-	arr_size = arr_len * sizeof(_type_); \
-	*tfield = arr = palloc(arr_size); \
-	\
-	skip_past_next_token_character(from, '('); \
-	for (int i = 0; i < arr_len; i++) \
-	{ \
-		int		len; \
-		const char *data_start; \
-		if (from->cursor == from->len) \
-			elog(ERROR, "Out of data while reading Node field %s", \
-				 desc->nfd_name); \
-		\
-		data_start = read_next_token(from, &len); \
-		\
-		arr[i] = parseTok(data_start); \
-	} \
-	skip_past_next_token_character(from, ')'); \
+	return tnvr_##_uctype_(from, field, flags); \
 }
 
-static void
+static bool
 tnfr_unimplemented(StringInfo from, NodeFieldDesc desc,
 				   void *field, uint32 flags)
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
-	elog(ERROR, "Node field %s's type %02x deserialization is unimplemented",
+
+	Assert(false);
+
+	elog(PANIC, "Node field %s's type %02x deserialization is unimplemented",
 		 desc->nfd_name, desc->nfd_type);
 }
-
-static void
-tnfr_unknown(StringInfo from, NodeFieldDesc desc,
-			 void *field, uint32 flags)
+static bool
+tnvr_unimplemented(StringInfo from, void *field, uint32 flags)
 {
-	CHECK_FLD_IS_COMPATIBLE(desc);
-	elog(ERROR, "Node field %s is of an unknown type: %02x",
-		 desc->nfd_name, desc->nfd_type);
+	Assert(false);
+
+	elog(PANIC, "Unimplemented deserialization type");
 }
 
 #define strtobool(x)	((*(x) == 't') ? true : false)
@@ -404,21 +420,27 @@ TextScalarFieldReader(double, DOUBLE, 0.0, atof)
 #undef CHECK_CAN_READ_FLD
 
 #define tsfr(_type_) \
-	[NFT_##_type_] = &tnfr_##_type_, \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &tnfr_array_##_type_
+	[NFT_##_type_] = tnfr_##_type_
 
 #define tsfr_unimpl(_type_) \
-	[NFT_##_type_] = &tnfr_unimplemented
+	[NFT_##_type_] = tnfr_unimplemented
 
-#define tsfr_unimpl_arr(_type_) \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &tnfr_unimplemented
-#define tsfr_unknown_type(val) \
-	[(val)] = &tnfr_unknown
+#define tsvr(_type_) \
+	[NFT_##_type_] = tnvr_##_type_
+
+#define tsvr_unimpl(_type_) \
+	[NFT_##_type_] = tnvr_unimplemented
 
 const NodeReader TextNodeReader = &(NodeReaderData){
-	.nr_read_tag = &tnr_read_tag,
-	.nr_finish_node = &tnr_finish_node,
+	.nr_read_tag = tnr_read_tag,
+	.nr_finish_node = tnr_finish_node,
+	.nr_start_field = tnr_start_field,
+	.nr_start_array = tnr_start_array,
+	.nr_array_value_separator = tnr_array_value_separator,
+	.nr_end_array = tnr_end_array,
+	.nr_end_field = tnr_end_field,
 	.nr_fld_readers = {
+		tsfr_unimpl(UNDEFINED),
 		tsfr(BOOL),
 		tsfr(PARSELOC),
 		tsfr(INT),
@@ -433,29 +455,30 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsfr(CHAR),
 		tsfr(DOUBLE),
 		[NFT_ENUM] = &tnfr_INT, /* enum has the same layout as INT */
-		[NFT_ENUM + NFT_ARRAYTYPE] = &tnfr_array_INT,
 		tsfr(CSTRING),
-		[NFT_BITMAPSET] = &tnfr_NODE,
-		[NFT_BITMAPSET + NFT_ARRAYTYPE] = &tnfr_array_NODE,
 		tsfr(NODE),
 		tsfr_unimpl(PARAM_PATH_INFO),
-		tsfr_unimpl_arr(PARAM_PATH_INFO),
-		tsfr_unimpl(UNDEFINED),
-		tsfr_unimpl(NUM_TYPES),
-		/* fill with invalid entries */
-		tsfr_unknown_type(NFT_INVALID_20),
-		tsfr_unknown_type(NFT_INVALID_21),
-		tsfr_unknown_type(NFT_INVALID_22),
-		tsfr_unknown_type(NFT_INVALID_23),
-		tsfr_unknown_type(NFT_INVALID_24),
-		tsfr_unknown_type(NFT_INVALID_25),
-		tsfr_unknown_type(NFT_INVALID_26),
-		tsfr_unknown_type(NFT_INVALID_27),
-		tsfr_unknown_type(NFT_INVALID_28),
-		tsfr_unknown_type(NFT_INVALID_29),
-		tsfr_unknown_type(NFT_INVALID_30),
-		tsfr_unknown_type(NFT_INVALID_31),
-	}
+	},
+	.nr_val_readers = {
+		tsvr_unimpl(UNDEFINED),
+		tsvr(BOOL),
+		tsvr(PARSELOC),
+		tsvr(INT),
+		tsvr(INT16),
+		tsvr(INT32),
+		tsvr(LONG),
+		tsvr(UINT),
+		tsvr(UINT16),
+		tsvr(UINT32),
+		tsvr(UINT64),
+		tsvr(OID),
+		tsvr(CHAR),
+		tsvr(DOUBLE),
+		[NFT_ENUM] = &tnvr_INT, /* enum has the same layout as INT */
+		tsvr(CSTRING),
+		tsvr(NODE),
+		tsvr_unimpl(PARAM_PATH_INFO),
+	},
 };
 
 #undef tsfr
@@ -474,7 +497,7 @@ appendFieldName(StringInfo into, NodeFieldDesc desc)
 {
 	appendStringInfoCharMacro(into, ' ');
 	appendStringInfoCharMacro(into, ':');
-	appendBinaryStringInfoNT(into, desc->nfd_name, desc->nfd_namelen);
+	appendBinaryStringInfo(into, desc->nfd_name, desc->nfd_namelen);
 	appendStringInfoCharMacro(into, ' ');
 }
 
@@ -519,7 +542,7 @@ static void
 tnw_start_node(StringInfo into, NodeDesc desc, uint32 flags)
 {
 	appendStringInfoCharMacro(into, '{');
-	appendBinaryStringInfoNT(into, desc->nd_name, desc->nd_namelen);
+	appendBinaryStringInfo(into, desc->nd_name, desc->nd_namelen);
 }
 
 static bool
@@ -527,6 +550,55 @@ tnw_finish_node(StringInfo into, NodeDesc desc, int last_field,
 				uint32 flags)
 {
 	appendStringInfoCharMacro(into, '}');
+	return true;
+}
+
+static void
+tnw_write_null(StringInfo into, uint32 flags)
+{
+	appendStringInfoString(into, "<>");
+}
+
+static void
+tnw_start_field(StringInfo into, NodeFieldDesc desc, uint32 flags)
+{
+	appendStringInfoCharMacro(into, ' ');
+	appendStringInfoCharMacro(into, ':');
+	appendBinaryStringInfo(into, desc->nfd_name, desc->nfd_namelen);
+	appendStringInfoCharMacro(into, ' ');
+}
+
+static void
+tnw_start_array(StringInfo into, uint32 flags)
+{
+	appendStringInfoCharMacro(into, '(');
+}
+
+static void
+tnw_field_entry_separator(StringInfo into, uint32 flags)
+{
+	appendStringInfoCharMacro(into, ' ');
+}
+
+static void
+tnw_end_array(StringInfo into, uint32 flags)
+{
+	appendStringInfoCharMacro(into, ')');
+}
+
+static void
+tnw_end_field(StringInfo into, uint32 flags)
+{
+	/* no-op */
+}
+
+static bool
+tnvw_CSTRING(StringInfo into, void *field, uint32 flags)
+{
+	char	   *value = *(char **) field;
+
+	outToken(into, value);
+
 	return true;
 }
 
@@ -538,37 +610,20 @@ tnfw_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	appendFieldName(into, desc);
-	outToken(into, value);
+	if (value == NULL)
+		return false;
 
-	return true;
+	appendFieldName(into, desc);
+
+	return tnvw_CSTRING(into, field, flags);
 }
 
 static bool
-tnfw_array_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+tnvw_NODE(StringInfo into, void *field, uint32 flags)
 {
-	int			arr_len;
-	char	  **arr = *(char ***) field;
+	Node	   *node = *(Node **) field;
 
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	if (arr == NULL)
-		return false;
-
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-
-	appendFieldName(into, desc);
-
-	appendStringInfoCharMacro(into, '(');
-	for (int i = 0; i < arr_len; i++)
-	{
-		if (i != 0)
-			appendStringInfoCharMacro(into, ' ');
-		outToken(into, arr[i]);
-	}
-	appendStringInfoCharMacro(into, ')');
-
-	return true;
+	return WriteNode(into, node, TextNodeWriter, flags);
 }
 
 static bool
@@ -583,34 +638,7 @@ tnfw_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 
 	appendFieldName(into, desc);
 
-	return WriteNode(into, node, TextNodeWriter, flags);
-}
-
-static bool
-tnfw_array_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
-{
-	int			arr_len;
-	Node	  **arr = *(Node ***) field;
-
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	if (arr == NULL)
-		return false;
-
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-
-	appendFieldName(into, desc);
-
-	appendStringInfoCharMacro(into, '(');
-	for (int i = 0; i < arr_len; i++)
-	{
-		if (i != 0)
-			appendStringInfoCharMacro(into, ' ');
-		WriteNode(into, arr[i], TextNodeWriter, flags);
-	}
-	appendStringInfoCharMacro(into, ')');
-
-	return true;
+	return tnvw_NODE(into, field, flags);
 }
 
 static bool
@@ -623,59 +651,36 @@ tnfw_unimplemented(StringInfo into, NodeFieldDesc desc, void *field,
 }
 
 static bool
-tnfw_unknown(StringInfo into, NodeFieldDesc desc, void *field,
-			 uint32 flags)
+tnvw_unimplemented(StringInfo into, void *field,
+				   uint32 flags)
 {
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
 	return false;
 }
 
 #define TextScalarFieldWriter(_type_, _uctype_, type_default, write_value) \
 static bool \
+tnvw_##_uctype_(StringInfo into, void *field, uint32 flags) \
+{ \
+	_type_		value = *(_type_ *) field; \
+	\
+	write_value; \
+	\
+	return true;\
+} \
+static bool \
 tnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
 				uint32 flags) \
 { \
-	_type_		value; \
 	CHECK_FLD_IS_COMPATIBLE(desc); \
 	\
 	if (*(_type_ *) field == (type_default)) \
 		return false; \
 	\
 	appendFieldName(into, desc); \
-	value = *(_type_ *) field; \
-	write_value; \
 	\
-	return true;\
-} \
-static bool \
-tnfw_array_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
-					  uint32 flags) \
-{ \
-	int			arr_len; \
-	_type_	  *t_arr = *(_type_ **) field; \
-	\
-	CHECK_FLD_IS_COMPATIBLE(desc); \
-	\
-	if (t_arr == NULL) \
-		return false; \
-	\
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-	\
-	appendFieldName(into, desc); \
-	appendStringInfoCharMacro(into, '('); \
-	for (int i = 0; i < arr_len; i++) \
-	{ \
-		_type_	value; \
-		if (i != 0) \
-			appendStringInfoCharMacro(into, ' '); \
-		value = t_arr[i]; \
-		write_value; \
-	} \
-	appendStringInfoCharMacro(into, ')'); \
-	\
-	return true; \
+	return tnvw_##_uctype_(into, field, flags); \
 }
+
 
 #define format(fmt) appendStringInfo(into, fmt, value)
 #define writeout(fnc) fnc(into, value)
@@ -696,21 +701,29 @@ TextScalarFieldWriter(uint64, UINT64, 0, format(UINT64_FORMAT))
 TextScalarFieldWriter(Oid, OID, 0, format("%u"))
 
 #define tsfw(_type_) \
-	[NFT_##_type_] = &tnfw_##_type_, \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &tnfw_array_##_type_
+	[NFT_##_type_] = tnfw_##_type_
 
 #define tsfw_unimpl(_type_) \
-	[NFT_##_type_] = &tnfw_unimplemented
+	[NFT_##_type_] = tnfw_unimplemented
 
-#define tsfw_unimpl_arr(_type_) \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &tnfw_unimplemented
-#define tsfw_unknown_type(val) \
-	[(val)] = &tnfw_unknown
+#define tsvw(_type_) \
+	[NFT_##_type_] = tnvw_##_type_
+
+#define tsvw_unimpl(_type_) \
+	[NFT_##_type_] = tnvw_unimplemented
+
 
 const NodeWriter TextNodeWriter = &(NodeWriterData){
-	.nw_start_node = &tnw_start_node,
-	.nw_finish_node = &tnw_finish_node,
+	.nw_start_node = tnw_start_node,
+	.nw_finish_node = tnw_finish_node,
+	.nw_write_null = tnw_write_null,
+	.nw_start_field = tnw_start_field,
+	.nw_start_array = tnw_start_array,
+	.nw_field_entry_separator = tnw_field_entry_separator,
+	.nw_end_array = tnw_end_array,
+	.nw_end_field = tnw_end_field,
 	.nw_fld_writers = {
+		tsfw_unimpl(UNDEFINED),
 		tsfw(BOOL),
 		tsfw(PARSELOC),
 		tsfw(INT),
@@ -725,28 +738,29 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsfw(CHAR),
 		tsfw(DOUBLE),
 		[NFT_ENUM] = &tnfw_INT, /* enum has the same layout as INT */
-		[NFT_ENUM + NFT_ARRAYTYPE] = &tnfw_array_INT,
 		tsfw(CSTRING),
-		[NFT_BITMAPSET] = &tnfw_NODE,
-		[NFT_BITMAPSET + NFT_ARRAYTYPE] = &tnfw_array_NODE,
 		tsfw(NODE),
 		tsfw_unimpl(PARAM_PATH_INFO),
-		tsfw_unimpl_arr(PARAM_PATH_INFO),
-		tsfw_unimpl(UNDEFINED),
-		tsfw_unimpl(NUM_TYPES),
-		/* fill with invalid entries */
-		tsfw_unknown_type(NFT_INVALID_20),
-		tsfw_unknown_type(NFT_INVALID_21),
-		tsfw_unknown_type(NFT_INVALID_22),
-		tsfw_unknown_type(NFT_INVALID_23),
-		tsfw_unknown_type(NFT_INVALID_24),
-		tsfw_unknown_type(NFT_INVALID_25),
-		tsfw_unknown_type(NFT_INVALID_26),
-		tsfw_unknown_type(NFT_INVALID_27),
-		tsfw_unknown_type(NFT_INVALID_28),
-		tsfw_unknown_type(NFT_INVALID_29),
-		tsfw_unknown_type(NFT_INVALID_30),
-		tsfw_unknown_type(NFT_INVALID_31),
+	},
+	.nw_val_writers = {
+		tsvw_unimpl(UNDEFINED),
+		tsvw(BOOL),
+		tsvw(PARSELOC),
+		tsvw(INT),
+		tsvw(INT16),
+		tsvw(INT32),
+		tsvw(LONG),
+		tsvw(UINT),
+		tsvw(UINT16),
+		tsvw(UINT32),
+		tsvw(UINT64),
+		tsvw(OID),
+		tsvw(CHAR),
+		tsvw(DOUBLE),
+		[NFT_ENUM] = &tnvw_INT, /* enum has the same layout as INT */
+		tsvw(CSTRING),
+		tsvw(NODE),
+		tsvw_unimpl(PARAM_PATH_INFO),
 	}
 };
 

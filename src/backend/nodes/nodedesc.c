@@ -28,6 +28,7 @@
 #include "nodes/extensible.h"
 #include "nodes/lockoptions.h"
 #include "nodes/miscnodes.h"
+#include "nodes/ndio.h"
 #include "nodes/nodes.h"
 #include "nodes/nodedesc.h"
 #include "nodes/parsenodes.h"
@@ -46,7 +47,7 @@
 		.nd_name = #_type_, \
 		.nd_nodetag = T_##_type_, \
 		.nd_size = sizeof(_type_), \
-		.nd_namelen = sizeof(#_type_), \
+		.nd_namelen = sizeof(#_type_) - 1, \
 		.nd_fields = (_fields_), \
 		.nd_fields_offset = (_fields_offset_), \
 		.nd_flags = (_flags_), \
@@ -60,7 +61,7 @@
 		.nfd_name = #_fldname_, \
 		.nfd_node = T_##_node_type_, \
 		.nfd_type = (_fldtype_), \
-		.nfd_namelen = sizeof(#_fldname_), \
+		.nfd_namelen = sizeof(#_fldname_) - 1, \
 		.nfd_field_no = (_fldnum_), \
 		.nfd_offset = offsetof(_node_type_, _fldname_), \
 		.nfd_flags = (_flags_), \
@@ -78,28 +79,7 @@ const NodeFieldDescData NodeFieldDescriptors[] = {
 #include "nodedesc.fields.c"
 	{0},
 };
-
 #undef MakeNodeFieldDesc
-
-#define CustomNodeRead(_type_) \
-extern Node *ReadNode##_type_(StringInfo from, NodeReader reader, uint32 flags);
-#define CustomNodeWrite(_type_) \
-extern bool WriteNode##_type_(StringInfo into, const Node *node, \
-							  NodeWriter writer, uint32 flags);
-#include "nodedesc.overrides.c"
-#undef CustomNodeRead
-#undef CustomNodeWrite
-
-#define CustomNodeRead(_type_) \
-	{ .cndf_read_node = ReadNode##_type_ },
-#define CustomNodeWrite(_type_) \
-	{ .cndf_write_node = WriteNode##_type_ },
-const CustomNodeDescFunc CustomNodeDescFunctions[] = {
-#include "nodedesc.overrides.c"
-	{0},
-};
-#undef CustomNodeRead
-#undef CustomNodeWrite
 
 NodeDesc NodeDescriptorsByName;
 static int num_sorted_nodedescriptors;
@@ -192,3 +172,29 @@ InitializeOrderedNodeDescriptors(void)
 
 	NodeDescriptorsByName = (NodeDesc) sorted;
 }
+
+#define CustomNodeRead(_type_) \
+extern Node *ReadNode##_type_(StringInfo from, NodeReader reader, uint32 flags);
+
+#define CustomNodeWrite(_type_) \
+extern bool WriteNode##_type_(StringInfo into, const Node *node, \
+							  NodeWriter writer, uint32 flags);
+
+#include "nodedesc.overrides.c"
+
+#undef CustomNodeRead
+#undef CustomNodeWrite
+
+#define CustomNodeRead(_type_) \
+	{ .cndf_read_node = ReadNode##_type_ },
+
+#define CustomNodeWrite(_type_) \
+	{ .cndf_write_node = WriteNode##_type_ },
+
+const CustomNodeDescFunc CustomNodeDescFunctions[] = {
+#include "nodedesc.overrides.c"
+	{0},
+};
+
+#undef CustomNodeRead
+#undef CustomNodeWrite

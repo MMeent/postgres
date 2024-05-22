@@ -1,5 +1,5 @@
-#ifndef POSTGRESQL_NODEDESC_H
-#define POSTGRESQL_NODEDESC_H
+#ifndef NODEDESC_H
+#define NODEDESC_H
 #include "nodes.h"
 
 /*
@@ -8,6 +8,7 @@
  * nodes when 
  */
 typedef enum NodeFieldType {
+	NFT_UNDEFINED,
 	/*
 	 * Scalar values, plus their array type tags
 	 * Each scalar value has a 0 argument, each _array type stores the
@@ -27,27 +28,12 @@ typedef enum NodeFieldType {
 	NFT_CHAR,
 	NFT_DOUBLE,
 	NFT_ENUM,
-
-	/* various other field types */
+	/* various by-ref field types */
 	NFT_CSTRING,
-	NFT_BITMAPSET,	/* */
-	NFT_NODE,		/* is a generic node */
-	NFT_PARAM_PATH_INFO,	/* */
+	NFT_NODE,		/* any node */
+	NFT_PARAM_PATH_INFO,	/* needs to be dropped at some point */
 	/* invalid unique type values follow */
-	NFT_UNDEFINED,
-	NFT_NUM_TYPES = 19,			/* invalid, but used as n_*/
-	NFT_INVALID_20 = 20,		/* invalid */
-	NFT_INVALID_21,				/* invalid */
-	NFT_INVALID_22,				/* invalid */
-	NFT_INVALID_23,				/* invalid */
-	NFT_INVALID_24,				/* invalid */
-	NFT_INVALID_25,				/* invalid */
-	NFT_INVALID_26,				/* invalid */
-	NFT_INVALID_27,				/* invalid */
-	NFT_INVALID_28,				/* invalid */
-	NFT_INVALID_29,				/* invalid */
-	NFT_INVALID_30,				/* invalid */
-	NFT_INVALID_31,				/* invalid */
+	NFT_NUM_TYPES = 18,			/* invalid, but used as n_*/
 	/* used as bit showing array types. */
 	NFT_ARRAYTYPE = 32,
 } NodeFieldType;
@@ -88,6 +74,7 @@ typedef struct NodeFieldDescData {
 typedef const NodeFieldDescData * NodeFieldDesc;
 
 extern const NodeDescData NodeDescriptors[];
+extern const NodeFieldDescData NodeFieldDescriptors[];
 
 /* initialized only when required by the backend */
 extern NodeDesc NodeDescriptorsByName;
@@ -102,7 +89,6 @@ UseOrderedNodeDescs()
 
 extern NodeDesc GetNodeDescByNodeName(const char *name, int len);
 
-extern const NodeFieldDescData NodeFieldDescriptors[];
 
 static inline NodeDesc
 GetNodeDesc(NodeTag tag)
@@ -129,58 +115,4 @@ GetNodeFieldDesc(NodeDesc nodeDesc, int field_no)
 	return fdesc;
 }
 
-typedef bool (*WriteTypedField)(StringInfo into, NodeFieldDesc desc,
-								void *field, uint32 flags);
-
-typedef struct NodeWriterData {
-	void	(*nw_start_node)(StringInfo into, NodeDesc desc, uint32 flags);
-	bool	(*nw_finish_node)(StringInfo into, NodeDesc desc, int last_field,
-							  uint32 flags);
-	WriteTypedField nw_fld_writers[NFT_NUM_TYPES + NFT_ARRAYTYPE];
-} NodeWriterData;
-typedef const NodeWriterData *NodeWriter;
-
-typedef bool (*WriteNodeFunc)(StringInfo into, const Node *node,
-							  NodeWriter writer, uint32 flags);
-extern bool WriteNode(StringInfo into, const Node *node, NodeWriter writer,
-					  uint32 flags);
-
-/* return how many fields you've read. Must be at least one. */
-typedef void (*ReadTypedField)(StringInfo from, NodeFieldDesc desc,
-							   void *field, uint32 flags);
-
-#define ND_READ_ARRAY_PREALLOCATED	1
-
-typedef struct NodeReaderData {
-	/* 
-	 * return false if the node is NULL, return true and set *out to the next
-	 * node's NodeTag to indicate we've started reading a node of that type.
-	 */
-	bool	(*nr_read_tag)(StringInfo from, uint32 flags, NodeTag *out);
-	void	(*nr_finish_node)(StringInfo from, NodeDesc desc, uint32 flags);
-	ReadTypedField nr_fld_readers[NFT_NUM_TYPES + NFT_ARRAYTYPE];
-} NodeReaderData;
-typedef const NodeReaderData * NodeReader;
-
-typedef Node *(*ReadNodeFunc)(StringInfo from, NodeReader reader, uint32 flags);
-extern Node *ReadNode(StringInfo from, NodeReader reader, uint32 flags);
-
-typedef union CustomNodeDescFuncs {
-	ReadNodeFunc	cndf_read_node;
-	ReadTypedField	cndf_read_field;
-	WriteNodeFunc	cndf_write_node;
-	WriteTypedField	cndf_write_field;
-} CustomNodeDescFunc;
-
-extern const CustomNodeDescFunc CustomNodeDescFunctions[];
-
-extern const NodeReader BinaryNodeReader;
-extern const NodeWriter BinaryNodeWriter;
-#define PG_BINSER_NODE_END 0xFF
-
-extern const NodeReader TextNodeReader;
-extern const NodeReader JSONNodeReader;
-extern const NodeWriter TextNodeWriter;
-extern const NodeWriter JSONNodeWriter;
-
-#endif //POSTGRESQL_NODEDESC_H
+#endif /* NODEDESC_H */

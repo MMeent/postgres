@@ -532,7 +532,8 @@ static void FindAndDropRelationBuffers(RelFileLocator rlocator,
 									   BlockNumber firstDelBlock);
 static void RelationCopyStorageUsingBuffer(RelFileLocator srclocator,
 										   RelFileLocator dstlocator,
-										   ForkNumber forkNum, bool permanent);
+										   ForkNumber forkNum,
+										   bool permanent, bool page_std);
 static void AtProcExit_Buffers(int code, Datum arg);
 static void CheckForBufferLeaks(void);
 static int	rlocator_comparator(const void *p1, const void *p2);
@@ -4632,7 +4633,8 @@ FlushRelationsAllBuffers(SMgrRelation *smgrs, int nrels)
 static void
 RelationCopyStorageUsingBuffer(RelFileLocator srclocator,
 							   RelFileLocator dstlocator,
-							   ForkNumber forkNum, bool permanent)
+							   ForkNumber forkNum,
+							   bool permanent, bool page_std)
 {
 	Buffer		srcBuf;
 	Buffer		dstBuf;
@@ -4695,9 +4697,13 @@ RelationCopyStorageUsingBuffer(RelFileLocator srclocator,
 		memcpy(dstPage, srcPage, BLCKSZ);
 		MarkBufferDirty(dstBuf);
 
-		/* WAL-log the copied page. */
+		/*
+		 * WAL-log the copied page.
+		 * Note that we don't know about the type of data contained in the
+		 * page, so we can't report that the buffer is a standard page.
+		 */
 		if (use_wal)
-			log_newpage_buffer(dstBuf, true);
+			log_newpage_buffer(dstBuf, page_std);
 
 		END_CRIT_SECTION();
 
@@ -4745,7 +4751,7 @@ CreateAndCopyRelationData(RelFileLocator src_rlocator,
 
 	/* copy main fork. */
 	RelationCopyStorageUsingBuffer(src_rlocator, dst_rlocator, MAIN_FORKNUM,
-								   permanent);
+								   permanent, true);
 
 	/* copy those extra forks that exist */
 	for (ForkNumber forkNum = MAIN_FORKNUM + 1;
@@ -4764,7 +4770,7 @@ CreateAndCopyRelationData(RelFileLocator src_rlocator,
 
 			/* Copy a fork's data, block by block. */
 			RelationCopyStorageUsingBuffer(src_rlocator, dst_rlocator, forkNum,
-										   permanent);
+										   permanent, false);
 		}
 	}
 }

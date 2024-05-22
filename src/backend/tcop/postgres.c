@@ -79,6 +79,7 @@
 #include "utils/snapmgr.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
+#include "nodes/ndio.h"
 
 /* ----------------
  *		global variables
@@ -641,8 +642,40 @@ pg_parse_query(const char *query_string)
 	 */
 #ifdef WRITE_READ_PARSE_PLAN_TREES
 	{
-		char	   *str = nodeToStringWithLocations(raw_parsetree_list);
-		List	   *new_list = stringToNodeWithLocations(str);
+		StringInfoData holder;
+		char	   *str;
+		List	   *new_list;
+
+		initStringInfo(&holder);
+
+		WriteNode(&holder, (Node *) raw_parsetree_list, TextNodeWriter, 0);
+		new_list = castNode(List, ReadNode(&holder, TextNodeReader, 0));
+		Assert(equal(new_list, raw_parsetree_list));
+
+		if (!equal(new_list, raw_parsetree_list))
+			elog(FATAL, "Text IO failed to produce an equal raw parse tree");
+		else
+		{
+			list_free_deep(raw_parsetree_list);
+			raw_parsetree_list = new_list;
+		}
+
+		resetStringInfo(&holder);
+
+		WriteNode(&holder, (Node *) raw_parsetree_list, BinaryNodeWriter, 0);
+		new_list = castNode(List, ReadNode(&holder, BinaryNodeReader, 0));
+		Assert(equal(new_list, raw_parsetree_list));
+
+		if (!equal(new_list, raw_parsetree_list))
+			elog(FATAL, "Binary IO failed to produce an equal raw parse tree");
+		else
+		{
+			list_free_deep(raw_parsetree_list);
+			raw_parsetree_list = new_list;
+		}
+
+		str = nodeToStringWithLocations(raw_parsetree_list);
+		new_list = stringToNodeWithLocations(str);
 
 		pfree(str);
 		/* This checks both outfuncs/readfuncs and the equal() routines... */

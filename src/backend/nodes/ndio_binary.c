@@ -17,6 +17,7 @@
 #include "postgres.h"
 
 #include "nodes/nodes.h"
+#include "nodes/ndio.h"
 #include "nodes/nodedesc.h"
 #include "nodes/plannodes.h"
 #include "nodes/replnodes.h"
@@ -36,8 +37,8 @@ CHECK_FLD_IS_COMPATIBLE(NodeFieldDesc fdesc)
 		Assert(fdesc->nfd_flags & NODEDESC_DISABLE_READ);
 	else
 		Assert(!(fdesc->nfd_flags & NODEDESC_DISABLE_READ));
-
 }
+
 static inline void
 CHECK_NODE_IS_COMPATIBLE(NodeDesc desc)
 {
@@ -52,11 +53,14 @@ CHECK_NODE_IS_COMPATIBLE(NodeDesc desc)
  *		Reader for a binary node serialization format.
  *
  * The serialization format for a normal Node is nodetag (as uint16), followed
- * by its fields, followed by a trailing 0xFF byte.  Individual fields are
- * serialized with a single byte indicating the field number, followed by the
- * field's contents.  If a field contains its datatype default value, it is
- * omitted from the serialized format; the missing field is recognised during
- * deserialization, re-inserting the default value into the deserialized node.
+ * by its fields.  Individual fields are serialized with a single byte
+ * indicating the field number, followed by the field's contents.  
+ * If a field contains its datatype default value, it is omitted from the
+ * serialized format; the missing field is recognised during deserialization,
+ * where the default value is re-inserted into the deserialized node.
+ *
+ * To detect the last field of a node, a virtual field with field_no=0xFF
+ * is inserted at the end if the final field of the node was omitted.
  */
 
 static bool
@@ -70,26 +74,83 @@ bnr_read_tag(StringInfo from, uint32 flags, NodeTag *out)
 	from->cursor += sizeof(uint16);
 
 	*out = tag_value;
+
+	if (tag_value == 0)
+		return false;
+
 	return true;
 }
 
 static void
-bnr_finish_node(StringInfo from, NodeDesc desc,
+bnr_finish_node(StringInfo from, NodeDesc desc, int final_field,
 				uint32 flags)
 {
 	uint8		final;
 
 	CHECK_NODE_IS_COMPATIBLE(desc);
-	CHECK_CAN_READ(from, sizeof(uint8), "Out of data reading node tag");
+	
+	if (final_field == desc->nd_fields - 1)
+		return;
+
+	CHECK_CAN_READ(from, sizeof(uint8), "Out of data reading node close tag");
 	final = from->data[from->cursor];
 
 	if (unlikely(final != PG_BINSER_NODE_END))
-		elog(ERROR, "Unexpected byte %02x at end of node %s during deserialization",
-			 final, desc->nd_name);
+		ereport(PANIC,
+				errbacktrace(),
+				errmsg_internal("Unexpected byte %02x at end of node %s during deserialization",
+								final, desc->nd_name));
+
 	from->cursor += sizeof(uint8);
 }
 
-static void
+static bool
+bnr_start_field(StringInfo from, NodeFieldDesc desc, uint32 flags)
+{
+	CHECK_FLD_IS_COMPATIBLE(desc);
+	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
+
+	if (from->data[from->cursor] == desc->nfd_field_no)
+	{
+		from->cursor += sizeof(uint8);
+		return true;
+	}
+
+	return false;
+}
+static bool
+bnr_start_array(StringInfo from, uint32 flags)
+{
+	CHECK_CAN_READ(from, sizeof(char), "Ran out of data at array");
+
+	/* no-op: no array start/end delineation. */
+	return true;
+}
+
+static bool
+bnvr_CSTRING(StringInfo from, void *field, uint32 flags)
+{
+	int		len = strnlen(from->data + from->cursor, from->len - from->cursor);
+	char   *fld;
+
+	if (len == from->len - from->cursor)
+		elog(PANIC, "Error reading cstring: Out of data");
+
+	Assert(from->data[from->cursor + len] == '\0');
+
+	fld = palloc(len + 1);
+
+	memcpy(fld, from->data + from->cursor,
+		   len + 1);
+
+	from->cursor += len + 1;
+
+	*((char **) field) = fld;
+
+	return true;
+}
+
+static bool
 bnfr_CSTRING(StringInfo from, NodeFieldDesc desc,
 			 void *field, uint32 flags)
 {
@@ -98,89 +159,31 @@ bnfr_CSTRING(StringInfo from, NodeFieldDesc desc,
 	CHECK_FLD_IS_COMPATIBLE(desc);
 	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
 	fldno = from->data[from->cursor];
+
 	if (fldno == desc->nfd_field_no)
 	{
-		int		offset = from->cursor + sizeof(uint8);
-		int		len = strnlen(&from->data[offset], from->len - offset);
-		char   *fld;
+		from->cursor += sizeof(uint8);
 
-		if (len == from->len - offset)
-			elog(ERROR, "Error reading field %s: out of data",
-				 desc->nfd_name);
-
-		len += 1; /* Include the trailing 0-byte */
-		from->cursor += len + sizeof(uint8);
-		fld = palloc(len);
-
-		*((char **) field) = fld;
-
-		memcpy(fld, &from->data[offset],
-			   len);
-		return;
+		return bnvr_CSTRING(from, field, flags);
 	}
 	else
 	{
 		Assert(fldno > desc->nfd_field_no);
 		*((char **) field) = NULL;
-		return;
+		return false;
 	}
 }
 
-static void
-bnfr_array_CSTRING(StringInfo from, NodeFieldDesc desc,
-				   void *field, uint32 flags)
+static bool
+bnvr_NODE(StringInfo from, void *field, uint32 flags)
 {
-	uint8		fldno;
-	int		n = *(int *) (((char *) field) + desc->nfd_arr_len_off);
-	char  **arr;
+	Node	  **fld = (Node **) field;
 
-	CHECK_FLD_IS_COMPATIBLE(desc);
-	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
-
-	fldno = from->data[from->cursor];
-	if (fldno == desc->nfd_field_no)
-	{
-		int		offset = from->cursor + sizeof(uint8);
-
-		arr = palloc(sizeof(char *) * n);
-		*(char ***) field = arr;
-
-		for (int i = 0; i < n; i++)
-		{
-			int		len;
-			char   *fld;
-
-			/* make sure there are bytes in the buffer before reading */
-			CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
-			len = strnlen(&from->data[offset], from->len - offset);
-
-			if (len == from->len - offset)
-				elog(ERROR, "Error reading field %s: out of data",
-					 desc->nfd_name);
-	
-			len += 1; /* Include the trailing 0-byte */
-			fld = palloc(len);
-	
-			*((char **) field) = fld;
-	
-			memcpy(fld, &from->data[offset],
-				   len);
-			offset += len;
-
-			from->cursor = offset;
-		}
-
-		return;
-	}
-	else
-	{
-		Assert(fldno > desc->nfd_field_no);
-		*(char ***) field = NULL;
-		return;
-	}
+	*fld = ReadNode(from, BinaryNodeReader, flags);
+	return true;
 }
 
-static void
+static bool
 bnfr_NODE(StringInfo from, NodeFieldDesc desc,
 		  void *field, uint32 flags)
 {
@@ -191,43 +194,32 @@ bnfr_NODE(StringInfo from, NodeFieldDesc desc,
 
 	fldno = from->data[from->cursor];
 
-	if (fldno != desc->nfd_field_no)
-		*(Node **) field = NULL;
-	else
+	if (fldno == desc->nfd_field_no)
 	{
 		from->cursor += sizeof(uint8);
 
-		*(Node **) field = ReadNode(from, BinaryNodeReader, flags);
-	}
-}
-
-static void
-bnfr_array_NODE(StringInfo from, NodeFieldDesc desc,
-				void *field, uint32 flags)
-{
-	uint8		fldno;
-
-	CHECK_FLD_IS_COMPATIBLE(desc);
-	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
-
-	fldno = from->data[from->cursor];
-
-	if (fldno != desc->nfd_field_no)
-	{
-		from->cursor += sizeof(uint8);
-
-		*(Node **) field = ReadNode(from, BinaryNodeReader, flags);
+		return bnvr_NODE(from, field, flags);
 	}
 	else
 	{
 		*(Node **) field = NULL;
+
+		return false;
 	}
-
 }
-
 
 #define BinaryScalarFieldReader(_type_, _uctype_, type_default) \
-static void \
+static bool \
+bnvr_##_uctype_(StringInfo from, void *field, uint32 flags) \
+{ \
+	CHECK_CAN_READ(from, sizeof(_type_), \
+				   "Ran out of data whilst reading " #_type_ " value"); \
+	\
+	memcpy(field, from->data + from->cursor, sizeof(_type_)); \
+	from->cursor += sizeof(_type_); \
+	return true; \
+} \
+static bool \
 bnfr_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
 				uint32 flags) \
 { \
@@ -240,72 +232,34 @@ bnfr_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
 	\
 	if (fldno == desc->nfd_field_no) \
 	{ \
-		int offset = from->cursor + sizeof(uint8); \
-		CHECK_CAN_READ_FLD(from, sizeof(uint8) + sizeof(_type_), desc); \
-		from->cursor += sizeof(_type_) + sizeof(uint8); \
-		memcpy(field, &from->data[offset], \
-			   sizeof(_type_)); \
-		return; \
+		from->cursor += sizeof(uint8); \
+		return bnvr_##_uctype_(from, field, flags); \
 	} \
 	else \
 	{ \
 		Assert(fldno > desc->nfd_field_no); \
 		*((_type_ *) field) = (type_default); \
-		return; \
-	} \
-} \
-static void \
-bnfr_array_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
-					  uint32 flags) \
-{ \
-	uint8		fldno; \
-	int			arr_len; \
-	int			arr_size; \
-	_type_	   *arr; \
-	\
-	CHECK_FLD_IS_COMPATIBLE(desc); \
-	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc); \
-	\
-	fldno = from->data[from->cursor]; \
-	\
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-	arr_size = arr_len * sizeof(_type_); \
-	\
-	if (fldno == desc->nfd_field_no) \
-	{ \
-		int		offset = from->cursor + sizeof(uint8); \
-		\
-		CHECK_CAN_READ_FLD(from, arr_size + sizeof(uint8), desc); \
-		from->cursor = offset + arr_size;\
-		arr = palloc(arr_size); \
-		*(_type_ **) field = arr; \
-		memcpy(arr, &from->data[offset], arr_size); \
-		return; \
-	} \
-	else \
-	{ \
-		Assert(fldno > desc->nfd_field_no); \
-		*(_type_ **) field = NULL; \
-		return; \
+		return false; \
 	} \
 }
 
-static void
+static bool
 bnfr_unimplemented(StringInfo from, NodeFieldDesc desc,
 				   void *field, uint32 flags)
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
-	elog(ERROR, "Node field %s's type %02x deserialization is unimplemented",
+
+	Assert(false);
+
+	elog(PANIC, "Node field %s's type %02x deserialization is unimplemented",
 		 desc->nfd_name, desc->nfd_type);
 }
 
-static void
-bnfr_unknown(StringInfo from, NodeFieldDesc desc,
-			 void *field, uint32 flags)
+static bool
+bnvr_unimplemented(StringInfo from, void *field, uint32 flags)
 {
-	CHECK_FLD_IS_COMPATIBLE(desc);
-	elog(ERROR, "Node field %s is of an unknown type: %02x",
-		 desc->nfd_name, desc->nfd_type);
+	Assert(false);
+	elog(PANIC, "Node value deserialization is unimplemented for this type");
 }
 
 BinaryScalarFieldReader(bool, BOOL, false)
@@ -327,58 +281,67 @@ BinaryScalarFieldReader(double, DOUBLE, 0.0)
 #undef CHECK_CAN_READ_FLD
 
 
-#define tsfr(_type_) \
-	[NFT_##_type_] = &bnfr_##_type_, \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &bnfr_array_##_type_
+#define bsfr(_type_) \
+	[NFT_##_type_] = bnfr_##_type_
+#define bsfr_unimpl(_type_) \
+	[NFT_##_type_] = bnfr_unimplemented
 
-#define tsfr_unimpl(_type_) \
-	[NFT_##_type_] = &bnfr_unimplemented
+#define bsvr(_type_) \
+	[NFT_##_type_] = bnvr_##_type_
+#define bsvr_unimpl(_type_) \
+	[NFT_##_type_] = bnvr_unimplemented
 
-#define tsfr_unimpl_arr(_type_) \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &bnfr_unimplemented
-#define tsfr_unknown_type(val) \
-	[(val)] = &bnfr_unknown
-
-const NodeReader BinaryNodeReader = &(NodeReaderData){
-	.nr_read_tag = &bnr_read_tag,
-	.nr_finish_node = &bnr_finish_node,
+const NodeReader BinaryNodeReader = &(NodeReaderData) {
+	.nr_read_tag = bnr_read_tag,
+	.nr_finish_node = bnr_finish_node,
+	.nr_start_field = bnr_start_field,
+	.nr_start_array = bnr_start_array,
+	.nr_array_value_separator = NULL, /* no separators here */
+	.nr_end_array = NULL,
+	.nr_end_field = NULL,
 	.nr_fld_readers = {
-		tsfr(BOOL),
-		tsfr(PARSELOC),
-		tsfr(INT),
-		tsfr(INT16),
-		tsfr(INT32),
-		tsfr(LONG),
-		tsfr(UINT),
-		tsfr(UINT16),
-		tsfr(UINT32),
-		tsfr(UINT64),
-		tsfr(OID),
-		tsfr(CHAR),
-		tsfr(DOUBLE),
-		[NFT_ENUM] = &bnfr_INT, /* enum has the same layout as INT */
-		[NFT_ENUM + NFT_ARRAYTYPE] = &bnfr_array_INT,
-		tsfr(CSTRING),
-		[NFT_BITMAPSET] = &bnfr_NODE,
-		[NFT_BITMAPSET + NFT_ARRAYTYPE] = &bnfr_array_NODE,
-		tsfr(NODE),
-		tsfr_unimpl(PARAM_PATH_INFO),
-		tsfr_unimpl_arr(PARAM_PATH_INFO),
-		tsfr_unimpl(UNDEFINED),
-		tsfr_unimpl(NUM_TYPES),
-		/* fill with invalid entries */
-		tsfr_unknown_type(NFT_INVALID_20),
-		tsfr_unknown_type(NFT_INVALID_21),
-		tsfr_unknown_type(NFT_INVALID_22),
-		tsfr_unknown_type(NFT_INVALID_23),
-		tsfr_unknown_type(NFT_INVALID_24),
-		tsfr_unknown_type(NFT_INVALID_25),
-		tsfr_unknown_type(NFT_INVALID_26),
-		tsfr_unknown_type(NFT_INVALID_27),
-		tsfr_unknown_type(NFT_INVALID_28),
-		tsfr_unknown_type(NFT_INVALID_29),
-		tsfr_unknown_type(NFT_INVALID_30),
-		tsfr_unknown_type(NFT_INVALID_31),
+		bsfr_unimpl(UNDEFINED),
+		bsfr(BOOL),
+		bsfr(PARSELOC),
+		bsfr(INT),
+		bsfr(INT16),
+		bsfr(INT32),
+		bsfr(LONG),
+		bsfr(UINT),
+		bsfr(UINT16),
+		bsfr(UINT32),
+		bsfr(UINT64),
+		bsfr(OID),
+		bsfr(CHAR),
+		bsfr(DOUBLE),
+		/* Enum has the same layout as INT, and is treated the same for
+		 * (de)serialization */
+		[NFT_ENUM] = &bnfr_INT, 
+		bsfr(CSTRING),
+		bsfr(NODE),
+		bsfr_unimpl(PARAM_PATH_INFO),
+	},
+	.nr_val_readers = {
+		bsvr_unimpl(UNDEFINED),
+		bsvr(BOOL),
+		bsvr(PARSELOC),
+		bsvr(INT),
+		bsvr(INT16),
+		bsvr(INT32),
+		bsvr(LONG),
+		bsvr(UINT),
+		bsvr(UINT16),
+		bsvr(UINT32),
+		bsvr(UINT64),
+		bsvr(OID),
+		bsvr(CHAR),
+		bsvr(DOUBLE),
+		/* Enum has the same layout as INT, and is treated the same for
+		 * (de)serialization */
+		[NFT_ENUM] = &bnvr_INT, 
+		bsvr(CSTRING),
+		bsvr(NODE),
+		bsvr_unimpl(PARAM_PATH_INFO),
 	}
 };
 
@@ -401,7 +364,7 @@ bnw_start_node(StringInfo into, NodeDesc desc, uint32 flags)
 	Assert(desc->nd_nodetag <= UINT16_MAX);
 	CHECK_NODE_IS_COMPATIBLE(desc);
 
-	appendBinaryStringInfoNT(into, &tag, sizeof(uint16));
+	appendBinaryStringInfo(into, &tag, sizeof(uint16));
 }
 
 static bool
@@ -413,7 +376,38 @@ bnw_finish_node(StringInfo into, NodeDesc desc, int last_field,
 	Assert(last_field <= desc->nd_fields);
 	CHECK_NODE_IS_COMPATIBLE(desc);
 
-	appendBinaryStringInfoNT(into, &final, sizeof(uint8));
+	/* save a byte on end-of-node if we know we've written the last field */
+	if (last_field != desc->nd_fields - 1)
+		appendBinaryStringInfo(into, &final, sizeof(uint8));
+
+	return true;
+}
+
+static void
+bnw_start_field(StringInfo into, NodeFieldDesc desc, uint32 flags)
+{
+	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
+}
+
+static void
+bnw_start_array(StringInfo into, uint32 flags)
+{
+	/* no start-of-array identifier */
+}
+
+static void
+bnw_write_null(StringInfo into, uint32 flags)
+{
+	appendBinaryStringInfo(into, "\0\0", 2);
+}
+
+static bool
+bnvw_CSTRING(StringInfo into, void *value, uint32 flags)
+{
+	char	   *cstr = *(char **) value;
+
+	appendStringInfoString(into, cstr);
+	appendStringInfoCharMacro(into, '\0');
 
 	return true;
 }
@@ -421,43 +415,22 @@ bnw_finish_node(StringInfo into, NodeDesc desc, int last_field,
 static bool
 bnfw_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 {
-	char		nil = '\0';
-
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
 	if (*(char **) field == NULL)
 		return false;
 
-	appendBinaryStringInfoNT(into, &desc->nfd_field_no, sizeof(uint8));
-	appendStringInfoString(into, field);
-	appendBinaryStringInfoNT(into, &nil, sizeof(char));
+	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
 
-	return true;
+	return bnvw_CSTRING(into, field, flags);
 }
 
 static bool
-bnfw_array_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+bnvw_NODE(StringInfo into, void *field, uint32 flags)
 {
-	char		nil = '\0';
-	int			arr_len;
-	char	  **arr = *(char ***) field;
+	Node	   *val = *(Node **) field;
 
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	if (arr == NULL)
-		return false;
-
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-
-	appendBinaryStringInfoNT(into, &desc->nfd_field_no, sizeof(uint8));
-
-	for (int i = 0; i < arr_len; i++)
-	{
-		appendStringInfoString(into, arr[i]);
-		appendBinaryStringInfoNT(into, &nil, sizeof(char));
-	}
-
-	return true;
+	return WriteNode(into, val, BinaryNodeWriter, flags);
 }
 
 static bool
@@ -470,53 +443,32 @@ bnfw_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 	if (node == NULL)
 		return false;
 
-	appendBinaryStringInfoNT(into, &desc->nfd_field_no, sizeof(uint8));
+	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
 
-	return WriteNode(into, node, BinaryNodeWriter, flags);
+	return bnvw_NODE(into, field, flags);
 }
 
 static bool
-bnfw_array_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+bnvw_unimplemented(StringInfo into, void *field, uint32 flags)
 {
-	int			arr_len;
-	Node	  **arr = *(Node ***) field;
-
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	if (arr == NULL)
-		return false;
-
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-
-	appendBinaryStringInfoNT(into, &desc->nfd_field_no, sizeof(uint8));
-
-	for (int i = 0; i < arr_len; i++)
-	{
-		WriteNode(into, arr[i], BinaryNodeWriter, flags);
-	}
-
-	return true;
+	Assert(false);
+	return false;
 }
 
 static bool
 bnfw_unimplemented(StringInfo into, NodeFieldDesc desc, void *field,
 				   uint32 flags)
 {
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	return false;
-}
-
-static bool
-bnfw_unknown(StringInfo into, NodeFieldDesc desc, void *field,
-			 uint32 flags)
-{
-	CHECK_FLD_IS_COMPATIBLE(desc);
-
-	return false;
+	return bnvw_unimplemented(into, field, flags);
 }
 
 #define BinaryScalarFieldWriter(_type_, _uctype_, type_default) \
+static bool \
+bnvw_##_uctype_(StringInfo into, void *field, uint32 flags) \
+{ \
+	appendBinaryStringInfo(into, field, sizeof(_type_)); \
+	return true; \
+} \
 static bool \
 bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
 				uint32 flags) \
@@ -526,28 +478,8 @@ bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
 	if (*(_type_ *) field == (type_default)) \
 		return false; \
 	\
-	appendBinaryStringInfoNT(into, &desc->nfd_field_no, sizeof(uint8)); \
-	appendBinaryStringInfoNT(into, field, sizeof(_type_)); \
-	\
-	return true;\
-} \
-static bool \
-bnfw_array_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
-					  uint32 flags) \
-{ \
-	int arr_len, arr_size; \
-	\
-	CHECK_FLD_IS_COMPATIBLE(desc); \
-	\
-	if (*(_type_ **) field == NULL) \
-		return false; \
-	\
-	arr_len = (*(int *) (((char *) field) + desc->nfd_arr_len_off)); \
-	arr_size = arr_len * sizeof(_type_); \
-	\
-	appendBinaryStringInfoNT(into, &desc->nfd_field_no, sizeof(uint8));\
-	appendBinaryStringInfoNT(into, *(void **) field, arr_size); \
-	return true; \
+	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8)); \
+	return bnvw_##_uctype_(into, field, flags); \
 }
 
 BinaryScalarFieldWriter(bool, BOOL, false)
@@ -565,21 +497,25 @@ BinaryScalarFieldWriter(char, CHAR, 0)
 BinaryScalarFieldWriter(double, DOUBLE, 0.0)
 
 #define bsfw(_type_) \
-	[NFT_##_type_] = &bnfw_##_type_, \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &bnfw_array_##_type_
-
+	[NFT_##_type_] = bnfw_##_type_
 #define bsfw_unimpl(_type_) \
-	[NFT_##_type_] = &bnfw_unimplemented
+	[NFT_##_type_] = bnfw_unimplemented
 
-#define bsfw_unimpl_arr(_type_) \
-	[NFT_##_type_ | NFT_ARRAYTYPE] = &bnfw_unimplemented
-#define bsfw_unknown_type(val) \
-	[(val)] = &bnfw_unknown
+#define bsvw(_type_) \
+	[NFT_##_type_] = bnvw_##_type_
+#define bsvw_unimpl(_type_) \
+	[NFT_##_type_] = bnvw_unimplemented
 
-const NodeWriter BinaryNodeWriter = &(NodeWriterData){
-	.nw_start_node = &bnw_start_node,
-	.nw_finish_node = &bnw_finish_node,
+const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
+	.nw_start_node = bnw_start_node,
+	.nw_finish_node = bnw_finish_node,
+	.nw_start_field = bnw_start_field,
+	.nw_start_array = bnw_start_array,
+	.nw_write_null = bnw_write_null,
+	.nw_end_array = NULL,
+	.nw_end_field = NULL,
 	.nw_fld_writers = {
+		bsfw_unimpl(UNDEFINED),
 		bsfw(BOOL),
 		bsfw(PARSELOC),
 		bsfw(INT),
@@ -594,27 +530,28 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData){
 		bsfw(CHAR),
 		bsfw(DOUBLE),
 		[NFT_ENUM] = &bnfw_INT, /* enum has the same layout as INT */
-		[NFT_ENUM + NFT_ARRAYTYPE] = &bnfw_array_INT,
 		bsfw(CSTRING),
-		[NFT_BITMAPSET] = &bnfw_NODE,
-		[NFT_BITMAPSET + NFT_ARRAYTYPE] = &bnfw_array_NODE,
 		bsfw(NODE),
 		bsfw_unimpl(PARAM_PATH_INFO),
-		bsfw_unimpl_arr(PARAM_PATH_INFO),
-		bsfw_unimpl(UNDEFINED),
-		bsfw_unimpl(NUM_TYPES),
-		/* fill with invalid entries */
-		bsfw_unknown_type(NFT_INVALID_20),
-		bsfw_unknown_type(NFT_INVALID_21),
-		bsfw_unknown_type(NFT_INVALID_22),
-		bsfw_unknown_type(NFT_INVALID_23),
-		bsfw_unknown_type(NFT_INVALID_24),
-		bsfw_unknown_type(NFT_INVALID_25),
-		bsfw_unknown_type(NFT_INVALID_26),
-		bsfw_unknown_type(NFT_INVALID_27),
-		bsfw_unknown_type(NFT_INVALID_28),
-		bsfw_unknown_type(NFT_INVALID_29),
-		bsfw_unknown_type(NFT_INVALID_30),
-		bsfw_unknown_type(NFT_INVALID_31),
+	},
+	.nw_val_writers = {
+		bsvw_unimpl(UNDEFINED),
+		bsvw(BOOL),
+		bsvw(PARSELOC),
+		bsvw(INT),
+		bsvw(INT16),
+		bsvw(INT32),
+		bsvw(LONG),
+		bsvw(UINT),
+		bsvw(UINT16),
+		bsvw(UINT32),
+		bsvw(UINT64),
+		bsvw(OID),
+		bsvw(CHAR),
+		bsvw(DOUBLE),
+		[NFT_ENUM] = &bnvw_INT, /* enum has the same layout as INT */
+		bsvw(CSTRING),
+		bsvw(NODE),
+		bsvw_unimpl(PARAM_PATH_INFO),
 	}
 };

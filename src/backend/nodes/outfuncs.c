@@ -399,7 +399,7 @@ _outConst(StringInfo str, const Const *node)
 }
 
 static void
-_outBoolExpr(StringInfo str, const BoolExpr *node)
+_outBoolExpr_OLD(StringInfo str, const BoolExpr *node)
 {
 	char	   *opstr = NULL;
 
@@ -573,7 +573,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 }
 
 static void
-_outA_Expr(StringInfo str, const A_Expr *node)
+_outA_Expr_OLD(StringInfo str, const A_Expr *node)
 {
 	WRITE_NODE_TYPE("A_EXPR");
 

@@ -931,10 +931,9 @@ typedef enum BoolExprType
 	AND_EXPR, OR_EXPR, NOT_EXPR
 } BoolExprType;
 
+/* 	pg_node_attr(custom_read_write) */
 typedef struct BoolExpr
 {
-	pg_node_attr(custom_read_write)
-
 	Expr		xpr;
 	BoolExprType boolop;
 	List	   *args;			/* arguments to this expression */

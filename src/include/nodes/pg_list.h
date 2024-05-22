@@ -61,6 +61,10 @@ typedef struct List
 	/* If elements == initial_elements, it's not a separate allocation */
 } List;
 
+typedef List IntList;
+typedef List OidList;
+typedef List XidList;
+
 /*
  * The *only* valid representation of an empty list is NIL; in other
  * words, a non-NIL list is guaranteed to have length >= 1.

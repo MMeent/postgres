@@ -326,10 +326,9 @@ typedef enum A_Expr_Kind
 	AEXPR_NOT_BETWEEN_SYM,		/* name must be "NOT BETWEEN SYMMETRIC" */
 } A_Expr_Kind;
 
+/*	pg_node_attr(custom_read_write) */
 typedef struct A_Expr
 {
-	pg_node_attr(custom_read_write)
-
 	NodeTag		type;
 	A_Expr_Kind kind;			/* see above */
 	List	   *name;			/* possibly-qualified name of operator */

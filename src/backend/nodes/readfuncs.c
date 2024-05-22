@@ -278,7 +278,7 @@ _readConst(void)
 }
 
 static BoolExpr *
-_readBoolExpr(void)
+_readBoolExpr_OLD(void)
 {
 	READ_LOCALS(BoolExpr);
 
@@ -436,7 +436,7 @@ _readRangeTblEntry(void)
 }
 
 static A_Expr *
-_readA_Expr(void)
+_readA_Expr_OLD(void)
 {
 	READ_LOCALS(A_Expr);
 
