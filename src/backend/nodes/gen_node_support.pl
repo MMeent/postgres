@@ -1502,7 +1502,7 @@ foreach my $n (@node_types)
 			my $sf = $fld->{name};
 			my $st = $fld->{type};
 
-			print $nf "MakeNodeFieldDesc($n, $sf, $st, $num_ser_fields, $fld_flags, 0, $fld_arg)\n";
+			print $nf "MakeNodeFieldDesc($n, $sf, $st, $num_ser_fields, $fld_flags, $fld_arg)\n";
 
 			$num_ser_fields += 1;
 		}

@@ -56,7 +56,7 @@
 	},
 
 #define MakeNodeFieldDesc(_node_type_, _fldname_, _fldtype_, _fldnum_, \
-						  _flags_, _custom_off_, _arr_len_off_) \
+						  _flags_, _arr_len_off_) \
 	{ \
 		.nfd_name = #_fldname_, \
 		.nfd_node = T_##_node_type_, \
@@ -66,7 +66,6 @@
 		.nfd_offset = offsetof(_node_type_, _fldname_), \
 		.nfd_flags = (_flags_), \
 		.nfd_arr_len_off = (int16) ((ssize_t) (_arr_len_off_)), \
-		.nfd_custom_off = (_custom_off_), \
 	},
 
 const NodeDescData NodeDescriptors[] = {

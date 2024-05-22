@@ -262,8 +262,6 @@ WriteNode(StringInfo into, const Node *node, NodeWriter writer, uint32 flags)
 
 	Assert(!(desc->nd_fld_flags & (NODEDESC_CUSTOM_READ |
 								   NODEDESC_CUSTOM_WRITE)));
-	int namelen = NodeDescriptors[1].nd_namelen;
-
 
 	writer->nw_start_node(into, desc, flags);
 
@@ -320,7 +318,6 @@ static const NodeFieldDescData bitmapIoTooling[] = {
 		.nfd_offset = offsetof(BitmapsetTool, nwords),
 		.nfd_flags = 0,
 		.nfd_arr_len_off = 0,
-		.nfd_custom_off = 0,
 	},
 	{
 		.nfd_name = "words",
@@ -332,7 +329,6 @@ static const NodeFieldDescData bitmapIoTooling[] = {
 		.nfd_flags = 0,
 		.nfd_arr_len_off = (ssize_t) (offsetof(BitmapsetTool, nwords) -
 									  offsetof(BitmapsetTool, words)),
-		.nfd_custom_off = 0,
 	},
 };
 
@@ -406,7 +402,6 @@ static const NodeFieldDescData listIoTooling[] = {
 		.nfd_offset = offsetof(ListIOTool, list_len),
 		.nfd_flags = 0,
 		.nfd_arr_len_off = 0,
-		.nfd_custom_off = 0,
 	},
 	{
 		.nfd_name = "items",
@@ -418,7 +413,6 @@ static const NodeFieldDescData listIoTooling[] = {
 		.nfd_flags = 0,
 		.nfd_arr_len_off = (ssize_t) (offsetof(BitmapsetTool, nwords) -
 									  offsetof(BitmapsetTool, words)),
-		.nfd_custom_off = 0,
 	},
 };
 
@@ -740,7 +734,6 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arr_len_off = 0,
-		.nfd_custom_off = 0,
 	},
 	{
 		.nfd_name = "constvalue",
@@ -751,7 +744,6 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arr_len_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
-		.nfd_custom_off = 0,
 	},
 	{
 		/* Note: Field is equivalently named and defined to the one above,
@@ -765,7 +757,6 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arr_len_off = 0,
-		.nfd_custom_off = 0,
 	},
 };
 
@@ -1067,21 +1058,6 @@ ReadNodeForeignKeyOptInfo(StringInfo from, NodeReader reader, uint32 flags)
 }
 
 bool
-WriteNodeA_Expr(StringInfo into, const Node *node,
-						NodeWriter writer, uint32 flags)
-{
-	Assert(false);
-	return false;
-}
-
-Node *
-ReadNodeA_Expr(StringInfo from, NodeReader reader, uint32 flags)
-{
-	Assert(false);
-	return NULL;
-}
-
-bool
 WriteNodeRangeTblEntry(StringInfo into, const Node *node,
 						NodeWriter writer, uint32 flags)
 {
@@ -1091,21 +1067,6 @@ WriteNodeRangeTblEntry(StringInfo into, const Node *node,
 
 Node *
 ReadNodeRangeTblEntry(StringInfo from, NodeReader reader, uint32 flags)
-{
-	Assert(false);
-	return NULL;
-}
-
-bool
-WriteNodeBoolExpr(StringInfo into, const Node *node,
-						NodeWriter writer, uint32 flags)
-{
-	Assert(false);
-	return false;
-}
-
-Node *
-ReadNodeBoolExpr(StringInfo from, NodeReader reader, uint32 flags)
 {
 	Assert(false);
 	return NULL;

@@ -32,7 +32,7 @@ typedef enum NodeFieldType {
 	NFT_NODE,		/* any node */
 	NFT_PARAM_PATH_INFO,	/* needs to be dropped at some point */
 	/* invalid unique type values follow */
-	NFT_NUM_TYPES = 18,			/* invalid, but used as n_*/
+	NFT_NUM_TYPES = 17,			/* invalid, but used as n_*/
 	/* used as bit showing array types. */
 	NFT_ARRAYTYPE = 32,
 } NodeFieldType;
@@ -54,7 +54,7 @@ typedef struct NodeDescData {
 	uint16		nd_fields_offset;	/* offset of the first field into the
 									 * NodeFieldDescriptors array */
 	uint16		nd_flags;			/* see below */
-	uint16		nd_fld_flags;	/* all field flags, or-ed */
+	uint16		nd_fld_flags;		/* all field flags, or-ed */
 	uint16		nd_custom_off;		/* custom IO functions */
 } NodeDescData;
 typedef const NodeDescData *NodeDesc;
@@ -68,8 +68,8 @@ typedef struct NodeFieldDescData {
 	uint16			nfd_offset;		/* offset from Node base pointer */
 	uint16			nfd_flags;		/* flag bits */
 	int16			nfd_arr_len_off; /* offset from this field to the int field with size of array. Should essentially always be negative. */
-	uint16			nfd_custom_off; /* offset of first custom attribute */
 } NodeFieldDescData;
+
 typedef const NodeFieldDescData * NodeFieldDesc;
 
 extern const NodeDescData NodeDescriptors[];
