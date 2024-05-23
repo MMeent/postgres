@@ -30,20 +30,19 @@ typedef enum NodeFieldType {
 	/* various by-ref field types */
 	NFT_CSTRING,
 	NFT_NODE,		/* any node */
-	NFT_PARAM_PATH_INFO,	/* needs to be dropped at some point */
 	/* invalid unique type values follow */
-	NFT_NUM_TYPES = 17,			/* invalid, but used as n_*/
+	NFT_NUM_TYPES = 16,			/* invalid, but used as n_*/
 	/* used as bit showing array types. */
 	NFT_ARRAYTYPE = 32,
 } NodeFieldType;
 
 #define NODEDESC_CUSTOM_HANDLERS	0x000F
-#define NODEDESC_CUSTOM_READ		0x0001
-#define NODEDESC_CUSTOM_WRITE		0x0002
+#define NODEDESC_CUSTOM_WRITE		0x0001
+#define NODEDESC_CUSTOM_READ		0x0002
 
 #define NODEDESC_DISABLE_HANDLERS	0x0F00
-#define NODEDESC_DISABLE_READ		0x0100
-#define NODEDESC_DISABLE_WRITE		0x0200
+#define NODEDESC_DISABLE_WRITE		0x0100
+#define NODEDESC_DISABLE_READ		0x0200
 
 typedef struct NodeDescData {
 	char	   *nd_name;

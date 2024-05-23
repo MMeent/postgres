@@ -1521,14 +1521,14 @@ foreach my $n (@node_types)
 		}
 	}
 	my $node_custom_off = $custom_off;
-	if ($custom_read)
-	{
-		print $no "CustomNodeRead($n)\n";
-		$custom_off++;
-	}
 	if ($custom_write)
 	{
 		print $no "CustomNodeWrite($n)\n";
+		$custom_off++;
+	}
+	if ($custom_read)
+	{
+		print $no "CustomNodeRead($n)\n";
 		$custom_off++;
 	}
 

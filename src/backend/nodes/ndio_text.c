@@ -455,7 +455,6 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		[NFT_ENUM] = &tnfr_INT, /* enum has the same layout as INT */
 		tsfr(CSTRING),
 		tsfr(NODE),
-		tsfr_unimpl(PARAM_PATH_INFO),
 	},
 	.nr_val_readers = {
 		tsvr_unimpl(UNDEFINED),
@@ -474,7 +473,6 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		[NFT_ENUM] = &tnvr_INT, /* enum has the same layout as INT */
 		tsvr(CSTRING),
 		tsvr(NODE),
-		tsvr_unimpl(PARAM_PATH_INFO),
 	},
 };
 
@@ -735,7 +733,6 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		[NFT_ENUM] = &tnfw_INT, /* enum has the same layout as INT */
 		tsfw(CSTRING),
 		tsfw(NODE),
-		tsfw_unimpl(PARAM_PATH_INFO),
 	},
 	.nw_val_writers = {
 		tsvw_unimpl(UNDEFINED),
@@ -754,7 +751,6 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		[NFT_ENUM] = &tnvw_INT, /* enum has the same layout as INT */
 		tsvw(CSTRING),
 		tsvw(NODE),
-		tsvw_unimpl(PARAM_PATH_INFO),
 	}
 };
 

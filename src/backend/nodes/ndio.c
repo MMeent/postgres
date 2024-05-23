@@ -42,7 +42,6 @@ int		type_sizes[NFT_NUM_TYPES] = {
 	TYPESIZE(ENUM, int),
 	TYPESIZE(CSTRING, char *),
 	TYPESIZE(NODE, Node *),
-	TYPESIZE(PARAM_PATH_INFO, ParamPathInfo *),
 };
 #undef TYPESIZE
 

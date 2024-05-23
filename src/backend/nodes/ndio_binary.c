@@ -317,7 +317,6 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		[NFT_ENUM] = &bnfr_INT, 
 		bsfr(CSTRING),
 		bsfr(NODE),
-		bsfr_unimpl(PARAM_PATH_INFO),
 	},
 	.nr_val_readers = {
 		bsvr_unimpl(UNDEFINED),
@@ -338,7 +337,6 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		[NFT_ENUM] = &bnvr_INT, 
 		bsvr(CSTRING),
 		bsvr(NODE),
-		bsvr_unimpl(PARAM_PATH_INFO),
 	}
 };
 
@@ -527,7 +525,6 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		[NFT_ENUM] = &bnfw_INT, /* enum has the same layout as INT */
 		bsfw(CSTRING),
 		bsfw(NODE),
-		bsfw_unimpl(PARAM_PATH_INFO),
 	},
 	.nw_val_writers = {
 		bsvw_unimpl(UNDEFINED),
@@ -546,6 +543,5 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		[NFT_ENUM] = &bnvw_INT, /* enum has the same layout as INT */
 		bsvw(CSTRING),
 		bsvw(NODE),
-		bsvw_unimpl(PARAM_PATH_INFO),
 	}
 };
