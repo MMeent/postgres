@@ -1313,14 +1313,13 @@ foreach my $n (@node_types)
 		my $t = $node_type_info{$n}->{field_types}{$f};
 		my @a = @{ $node_type_info{$n}->{field_attrs}{$f} };
 		my $fld_type;
-		my $num_custom = 0;
 		my @subflds = ();
 
 		my $array_size_field;
 		my $read_as_field;
 		my $read_write_ignore = 0;
 		my @fld_flags = ();
-		my $fld_arg = '0';
+		my $arrlenoff = '0';
 
 		my $f_no_read = $no_read;
 		my $f_no_write = $no_write;
@@ -1331,11 +1330,25 @@ foreach my $n (@node_types)
 			{
 				$array_size_field = $1;
 
-				$fld_arg = "offsetof($n, $f) - offsetof($n, $1)";
 				# insist that we read the array size first!
 				die
 					"array size field $array_size_field for field $n.$f must precede $f\n"
-					if (!$previous_fields{$array_size_field} && !$no_read);
+					if (!(defined $previous_fields{$array_size_field}) && !$no_read);
+
+				my $arrsztyp = $node_type_info{$n}->{field_types}{$1};
+
+				if ($arrsztyp eq 'int')
+				{
+					$arrlenoff = "offsetof($n, $1) - offsetof($n, $f)";
+				}
+				elsif ($arrsztyp eq 'List*')
+				{
+					$arrlenoff = "offsetof($n, $f) - offsetof($n, $1)";
+				}
+				else
+				{
+					die "array length field '$n.$1' is of incompatible type $arrsztyp";
+				}
 			}
 			elsif ($a =~ /^read_as\(([\w.]+)\)$/)
 			{
@@ -1368,7 +1381,7 @@ foreach my $n (@node_types)
 			}
 		}
 
-		$previous_fields{$f} = 1;
+		$previous_fields{$f} = $num_ser_fields;
 
 		if (elem $t, @simple_scalar_types)
 		{
@@ -1502,7 +1515,7 @@ foreach my $n (@node_types)
 			my $sf = $fld->{name};
 			my $st = $fld->{type};
 
-			print $nf "MakeNodeFieldDesc($n, $sf, $st, $num_ser_fields, $fld_flags, $fld_arg)\n";
+			print $nf "MakeNodeFieldDesc($n, $sf, $st, $num_ser_fields, $fld_flags, $arrlenoff)\n";
 
 			$num_ser_fields += 1;
 		}

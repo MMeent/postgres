@@ -85,10 +85,21 @@ static bool
 ReadArrayField(StringInfo from, NodeReader reader, NodeFieldDesc fdesc,
 			   const void **array, uint32 flags)
 {
-	int			arrlen = *(int *)(((char *) array) + fdesc->nfd_arr_len_off);
+	int			arrlen;
 
 	if (!reader->nr_start_field(from, fdesc, flags))
 		return false;
+
+	if (fdesc->nfd_arrlen_off < 0)
+	{
+		arrlen = *(int *) (((char *) array) + ((ssize_t) fdesc->nfd_arrlen_off));
+	}
+	else
+	{
+		List	   *donor = *(List **)
+			(((char *) array) - ((ssize_t) fdesc->nfd_arrlen_off));
+		arrlen = list_length(donor);
+	}
 
 	ReadArrayValue(from, reader, fdesc->nfd_type, array, arrlen, flags);
 
@@ -190,7 +201,8 @@ WriteArrayValue(StringInfo into, NodeWriter writer, NodeFieldType type,
 		fld += val_len;
 	}
 
-	writer->nw_end_array(into, flags);
+	if (writer->nw_end_array)
+		writer->nw_end_array(into, flags);
 
 	return true;
 }
@@ -201,6 +213,7 @@ WriteArrayField(StringInfo into, NodeWriter writer, NodeFieldDesc fdesc,
 {
 
 	char	   *fld = *(char **) (array);
+	int			arrlen;
 
 	if (fld == NULL)
 	{
@@ -208,7 +221,8 @@ WriteArrayField(StringInfo into, NodeWriter writer, NodeFieldDesc fdesc,
 		{
 			writer->nw_start_field(into, fdesc, flags);
 			writer->nw_write_null(into, flags);
-			writer->nw_end_field(into, flags);
+			if (writer->nw_end_field)
+				writer->nw_end_field(into, flags);
 			return true;
 		}
 		else
@@ -218,10 +232,21 @@ WriteArrayField(StringInfo into, NodeWriter writer, NodeFieldDesc fdesc,
 	}
 
 	writer->nw_start_field(into, fdesc, flags);
-	WriteArrayValue(into, writer, fdesc->nfd_type, array,
-					*(int *) (((char *) array) + fdesc->nfd_arr_len_off),
-					flags);
-	writer->nw_end_field(into, flags);
+	if (fdesc->nfd_arrlen_off < 0)
+	{
+		arrlen = *(int *) (((char *) array) + ((ssize_t) fdesc->nfd_arrlen_off));
+	}
+	else
+	{
+		List	   *donor = *(List **) 
+			(((char *) array) - ((ssize_t) fdesc->nfd_arrlen_off));
+		arrlen = list_length(donor);
+	}
+
+	WriteArrayValue(into, writer, fdesc->nfd_type, array, arrlen, flags);
+
+	if (writer->nw_end_field)
+		writer->nw_end_field(into, flags);
 
 	return true;
 }
@@ -275,7 +300,7 @@ WriteNode(StringInfo into, const Node *node, NodeWriter writer, uint32 flags)
 		if (fdesc->nfd_type & NFT_ARRAYTYPE)
 		{
 			if (WriteArrayField(into, writer, fdesc,
-								(const void **) ptr + fdesc->nfd_offset,
+								(const void **) (ptr + (ssize_t) fdesc->nfd_offset),
 								flags))
 				last_written_field = i;
 		}
@@ -317,7 +342,7 @@ static const NodeFieldDescData bitmapIoTooling[] = {
 		.nfd_field_no = 0,
 		.nfd_offset = offsetof(BitmapsetTool, nwords),
 		.nfd_flags = 0,
-		.nfd_arr_len_off = 0,
+		.nfd_arrlen_off = 0,
 	},
 	{
 		.nfd_name = "words",
@@ -327,8 +352,8 @@ static const NodeFieldDescData bitmapIoTooling[] = {
 		.nfd_field_no = 0,
 		.nfd_offset = offsetof(BitmapsetTool, words),
 		.nfd_flags = 0,
-		.nfd_arr_len_off = (ssize_t) (offsetof(BitmapsetTool, nwords) -
-									  offsetof(BitmapsetTool, words)),
+		.nfd_arrlen_off = (ssize_t) (offsetof(BitmapsetTool, nwords) -
+									 offsetof(BitmapsetTool, words)),
 	},
 };
 
@@ -401,7 +426,7 @@ static const NodeFieldDescData listIoTooling[] = {
 		.nfd_field_no = 0,
 		.nfd_offset = offsetof(ListIOTool, list_len),
 		.nfd_flags = 0,
-		.nfd_arr_len_off = 0,
+		.nfd_arrlen_off = 0,
 	},
 	{
 		.nfd_name = "items",
@@ -411,8 +436,8 @@ static const NodeFieldDescData listIoTooling[] = {
 		.nfd_field_no = 1,
 		.nfd_offset = offsetof(BitmapsetTool, words),
 		.nfd_flags = 0,
-		.nfd_arr_len_off = (ssize_t) (offsetof(BitmapsetTool, nwords) -
-									  offsetof(BitmapsetTool, words)),
+		.nfd_arrlen_off = (ssize_t) (offsetof(BitmapsetTool, nwords) -
+									 offsetof(BitmapsetTool, words)),
 	},
 };
 
@@ -733,7 +758,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
-		.nfd_arr_len_off = 0,
+		.nfd_arrlen_off = 0,
 	},
 	{
 		.nfd_name = "constvalue",
@@ -743,7 +768,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
-		.nfd_arr_len_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
+		.nfd_arrlen_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
 	},
 	{
 		/* Note: Field is equivalently named and defined to the one above,
@@ -756,7 +781,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
-		.nfd_arr_len_off = 0,
+		.nfd_arrlen_off = 0,
 	},
 };
 
@@ -920,7 +945,7 @@ static const NodeFieldDescData a_constIoTooling[] = {
 		.nfd_field_no = 0,
 		.nfd_offset = 0,
 		.nfd_flags = 0,
-		.nfd_arr_len_off = 0,
+		.nfd_arrlen_off = 0,
 	}
 };
 

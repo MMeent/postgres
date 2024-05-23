@@ -371,6 +371,7 @@ outDatum(StringInfo str, Datum value, int typlen, bool typbyval)
 
 
 #include "outfuncs.funcs.c"
+#include "nodes/ndio.h"
 
 
 /*
@@ -771,13 +772,52 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 {
 	StringInfoData str;
 	bool		save_write_location_fields;
+	int			len_binary,
+				len_newtext,
+				len_oldtext;
+	instr_time	start,
+				end,
+				duration_binary,
+				duration_newtext,
+				duration_oldtext;
+	initStringInfo(&str);
+	INSTR_TIME_SET_ZERO(duration_binary);
+	INSTR_TIME_SET_ZERO(duration_newtext);
+	INSTR_TIME_SET_ZERO(duration_oldtext);
 
 	save_write_location_fields = write_location_fields;
 	write_location_fields = write_loc_fields;
 
+	INSTR_TIME_SET_CURRENT(start);
+	WriteNode(&str, obj, BinaryNodeWriter, 0);
+	INSTR_TIME_SET_CURRENT(end);
+	INSTR_TIME_ACCUM_DIFF(duration_binary, end, start);
+
+	len_binary = str.len;
+	resetStringInfo(&str);
+
+	INSTR_TIME_SET_CURRENT(start);
+	WriteNode(&str, obj, TextNodeWriter, 0);
+	INSTR_TIME_SET_CURRENT(end);
+	INSTR_TIME_ACCUM_DIFF(duration_newtext, end, start);
+
+	len_newtext = str.len;
+	resetStringInfo(&str);
+
+	INSTR_TIME_SET_CURRENT(start);
 	/* see stringinfo.h for an explanation of this maneuver */
-	initStringInfo(&str);
 	outNode(&str, obj);
+	INSTR_TIME_SET_CURRENT(end);
+	INSTR_TIME_ACCUM_DIFF(duration_oldtext, end, start);
+	len_oldtext = str.len;
+
+	ereport(LOG, errhidecontext(true), errhidestmt(true),
+			errmsg_internal("ot/nt/bin: written=%u/%u/%u timing_us="
+							UINT64_FORMAT "/" UINT64_FORMAT "/" UINT64_FORMAT,
+							len_oldtext, len_newtext, len_binary,
+							INSTR_TIME_GET_MICROSEC(duration_oldtext),
+							INSTR_TIME_GET_MICROSEC(duration_newtext),
+							INSTR_TIME_GET_MICROSEC(duration_binary)));
 
 	write_location_fields = save_write_location_fields;
 

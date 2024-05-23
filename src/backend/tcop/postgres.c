@@ -645,17 +645,15 @@ pg_parse_query(const char *query_string)
 		StringInfoData holder;
 		char	   *str;
 		List	   *new_list;
-		int		oldtext, newtext, newbinary;
 
 		initStringInfo(&holder);
 
 		WriteNode(&holder, (Node *) raw_parsetree_list, TextNodeWriter, 0);
 		new_list = castNode(List, ReadNode(&holder, TextNodeReader, 0));
 		Assert(equal(new_list, raw_parsetree_list));
-		newtext = holder.len;
 
 		if (!equal(new_list, raw_parsetree_list))
-			elog(FATAL, "Text IO failed to produce an equal raw parse tree");
+			elog(PANIC, "Text IO failed to produce an equal raw parse tree");
 		else
 		{
 			list_free_deep(raw_parsetree_list);
@@ -668,10 +666,8 @@ pg_parse_query(const char *query_string)
 		new_list = castNode(List, ReadNode(&holder, BinaryNodeReader, 0));
 		Assert(equal(new_list, raw_parsetree_list));
 
-		newbinary = holder.len;
-
 		if (!equal(new_list, raw_parsetree_list))
-			elog(FATAL, "Binary IO failed to produce an equal raw parse tree");
+			elog(PANIC, "Binary IO failed to produce an equal raw parse tree");
 		else
 		{
 			list_free_deep(raw_parsetree_list);
@@ -680,7 +676,6 @@ pg_parse_query(const char *query_string)
 
 		str = nodeToStringWithLocations(raw_parsetree_list);
 		new_list = stringToNodeWithLocations(str);
-		oldtext = strlen(str);
 
 		pfree(str);
 		/* This checks both outfuncs/readfuncs and the equal() routines... */
@@ -688,8 +683,6 @@ pg_parse_query(const char *query_string)
 			elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
 		else
 			raw_parsetree_list = new_list;
-
-		elog(LOG, "pg_parse_query/stats: %d,%d,%d", oldtext, newtext, newbinary);
 	}
 #endif
 

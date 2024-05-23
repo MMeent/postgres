@@ -67,7 +67,15 @@ typedef struct NodeFieldDescData {
 	uint8			nfd_field_no;	/* field number */
 	uint16			nfd_offset;		/* offset from Node base pointer */
 	uint16			nfd_flags;		/* flag bits */
-	int16			nfd_arr_len_off; /* offset from this field to the int field with size of array. Should essentially always be negative. */
+	int16			nfd_arrlen_off;	/*---
+									 * When negative:
+									 *	offset from this field to the int
+									 *	field that contains the size of
+									 *	the array.
+									 * When non-negative:
+									 *	offset to a List field whose length
+									 *	indicates this array's length.
+									 */
 } NodeFieldDescData;
 
 typedef const NodeFieldDescData * NodeFieldDesc;
