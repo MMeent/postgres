@@ -57,8 +57,8 @@ InsertRule(const char *rulname,
 		   List *action,
 		   bool replace)
 {
-	char	   *evqual = nodeToString(event_qual);
-	char	   *actiontree = nodeToString((Node *) action);
+	NodeTree	evqual = nodeToNodeTree(event_qual);
+	NodeTree	actiontree = nodeToNodeTree((Node *) action);
 	Datum		values[Natts_pg_rewrite];
 	bool		nulls[Natts_pg_rewrite] = {0};
 	NameData	rname;
@@ -79,8 +79,8 @@ InsertRule(const char *rulname,
 	values[Anum_pg_rewrite_ev_type - 1] = CharGetDatum(evtype + '0');
 	values[Anum_pg_rewrite_ev_enabled - 1] = CharGetDatum(RULE_FIRES_ON_ORIGIN);
 	values[Anum_pg_rewrite_is_instead - 1] = BoolGetDatum(evinstead);
-	values[Anum_pg_rewrite_ev_qual - 1] = CStringGetTextDatum(evqual);
-	values[Anum_pg_rewrite_ev_action - 1] = CStringGetTextDatum(actiontree);
+	values[Anum_pg_rewrite_ev_qual - 1] = PointerGetDatum(evqual);
+	values[Anum_pg_rewrite_ev_action - 1] = PointerGetDatum(actiontree);
 
 	/*
 	 * Ready to store new pg_rewrite tuple

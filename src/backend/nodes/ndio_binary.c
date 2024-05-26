@@ -21,6 +21,8 @@
 #include "nodes/nodedesc.h"
 #include "nodes/plannodes.h"
 #include "nodes/replnodes.h"
+#include "varatt.h"
+#include "fmgr.h"
 
 
 #define CHECK_CAN_READ(info, length, ...) \
@@ -125,6 +127,54 @@ bnr_start_array(StringInfo from, uint32 flags)
 
 	/* no-op: no array start/end delineation. */
 	return true;
+}
+
+static bool
+bnvr_VARLENA(StringInfo from, void *field, uint32 flags)
+{
+	uint32		vl_len_;
+	char	   *value;
+
+	CHECK_CAN_READ(from, sizeof(uint32),
+				   "Error reading varlena data: Out of data");
+	memcpy(&vl_len_, from->data + from->cursor, sizeof(uint32));
+	from->cursor += sizeof(uint32);
+
+	CHECK_CAN_READ(from, vl_len_ - VARHDRSZ,
+				   "Error reading varlena data: Out of data");
+	value = palloc(vl_len_);
+
+	SET_VARSIZE(value, vl_len_);
+	memcpy(VARDATA(value), from->data + from->cursor, vl_len_ - VARHDRSZ);
+	from->cursor += (vl_len_ - VARHDRSZ);
+
+	*((char **) field) = value;
+
+	return true;
+}
+
+static bool
+bnfr_VARLENA(StringInfo from, NodeFieldDesc desc, void *field,
+				 uint32 flags)
+{
+	uint8		fldno;
+
+	CHECK_FLD_IS_COMPATIBLE(desc);
+	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
+	fldno = from->data[from->cursor];
+
+	if (fldno == desc->nfd_field_no)
+	{
+		from->cursor += sizeof(uint8);
+
+		return bnvr_VARLENA(from, field, flags);
+	}
+	else
+	{
+		Assert(fldno > desc->nfd_field_no);
+		*((char **) field) = NULL;
+		return false;
+	}
 }
 
 static bool
@@ -315,6 +365,7 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		/* Enum has the same layout as INT, and is treated the same for
 		 * (de)serialization */
 		[NFT_ENUM] = &bnfr_INT, 
+		bsfr(VARLENA),
 		bsfr(CSTRING),
 		bsfr(NODE),
 	},
@@ -335,6 +386,7 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		/* Enum has the same layout as INT, and is treated the same for
 		 * (de)serialization */
 		[NFT_ENUM] = &bnvr_INT, 
+		bsvr(VARLENA),
 		bsvr(CSTRING),
 		bsvr(NODE),
 	}
@@ -397,7 +449,40 @@ bnw_write_null(StringInfo into, uint32 flags)
 }
 
 static bool
-bnvw_CSTRING(StringInfo into, void *value, uint32 flags)
+bnvw_VARLENA(StringInfo into, const void *value, uint32 flags)
+{
+	struct varlena *vlna = *(struct varlena **) value;
+	struct varlena *vlnb;
+	uint32		vl_len_;
+
+	vlnb = pg_detoast_datum(vlna);
+	vl_len_ = VARSIZE_ANY_EXHDR(vlnb) + VARHDRSZ;
+
+	appendBinaryStringInfo(into, &vl_len_, sizeof(uint32));
+	appendBinaryStringInfo(into, VARDATA(vlnb), VARSIZE_ANY_EXHDR(vlnb));
+
+	if (vlna != vlnb)
+		pfree(vlnb);
+
+	return true;
+}
+
+static bool
+bnfw_VARLENA(StringInfo into, NodeFieldDesc desc, const void *field,
+				 uint32 flags)
+{
+	CHECK_FLD_IS_COMPATIBLE(desc);
+
+	if (*(char **) field == NULL)
+		return false;
+
+	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
+
+	return bnvw_VARLENA(into, field, flags);
+}
+
+static bool
+bnvw_CSTRING(StringInfo into, const void *value, uint32 flags)
 {
 	char	   *cstr = *(char **) value;
 
@@ -408,7 +493,8 @@ bnvw_CSTRING(StringInfo into, void *value, uint32 flags)
 }
 
 static bool
-bnfw_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+bnfw_CSTRING(StringInfo into, NodeFieldDesc desc, const void *field,
+			 uint32 flags)
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
@@ -421,7 +507,7 @@ bnfw_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 }
 
 static bool
-bnvw_NODE(StringInfo into, void *field, uint32 flags)
+bnvw_NODE(StringInfo into, const void *field, uint32 flags)
 {
 	Node	   *val = *(Node **) field;
 
@@ -429,7 +515,8 @@ bnvw_NODE(StringInfo into, void *field, uint32 flags)
 }
 
 static bool
-bnfw_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+bnfw_NODE(StringInfo into, NodeFieldDesc desc, const void *field,
+		  uint32 flags)
 {
 	Node	   *node = *(Node **) field;
 
@@ -444,14 +531,14 @@ bnfw_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 }
 
 static bool
-bnvw_unimplemented(StringInfo into, void *field, uint32 flags)
+bnvw_unimplemented(StringInfo into, const void *field, uint32 flags)
 {
 	Assert(false);
 	return false;
 }
 
 static bool
-bnfw_unimplemented(StringInfo into, NodeFieldDesc desc, void *field,
+bnfw_unimplemented(StringInfo into, NodeFieldDesc desc, const void *field,
 				   uint32 flags)
 {
 	return bnvw_unimplemented(into, field, flags);
@@ -459,13 +546,13 @@ bnfw_unimplemented(StringInfo into, NodeFieldDesc desc, void *field,
 
 #define BinaryScalarFieldWriter(_type_, _uctype_, type_default) \
 static bool \
-bnvw_##_uctype_(StringInfo into, void *field, uint32 flags) \
+bnvw_##_uctype_(StringInfo into, const void *field, uint32 flags) \
 { \
 	appendBinaryStringInfo(into, field, sizeof(_type_)); \
 	return true; \
 } \
 static bool \
-bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
+bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 				uint32 flags) \
 { \
 	CHECK_FLD_IS_COMPATIBLE(desc); \
@@ -523,6 +610,7 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		bsfw(CHAR),
 		bsfw(DOUBLE),
 		[NFT_ENUM] = &bnfw_INT, /* enum has the same layout as INT */
+		bsfw(VARLENA),
 		bsfw(CSTRING),
 		bsfw(NODE),
 	},
@@ -541,6 +629,7 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		bsvw(CHAR),
 		bsvw(DOUBLE),
 		[NFT_ENUM] = &bnvw_INT, /* enum has the same layout as INT */
+		bsvw(VARLENA),
 		bsvw(CSTRING),
 		bsvw(NODE),
 	}

@@ -36,6 +36,7 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#include "nodes/nodeFuncs.h"
 
 /* Potentially set by pg_upgrade_support functions */
 Oid			binary_upgrade_next_pg_type_oid = InvalidOid;
@@ -216,7 +217,7 @@ TypeCreate(Oid newTypeOid,
 		   Oid arrayType,
 		   Oid baseType,
 		   const char *defaultTypeValue,	/* human-readable rep */
-		   char *defaultTypeBin,	/* cooked rep */
+		   NodeTree defaultTypeBin,	/* cooked rep */
 		   bool passedByValue,
 		   char alignment,
 		   char storage,
@@ -384,7 +385,7 @@ TypeCreate(Oid newTypeOid,
 	 * course.
 	 */
 	if (defaultTypeBin)
-		values[Anum_pg_type_typdefaultbin - 1] = CStringGetTextDatum(defaultTypeBin);
+		values[Anum_pg_type_typdefaultbin - 1] = PointerGetDatum(defaultTypeBin);
 	else
 		nulls[Anum_pg_type_typdefaultbin - 1] = true;
 
@@ -497,7 +498,7 @@ TypeCreate(Oid newTypeOid,
 		GenerateTypeDependencies(tup,
 								 pg_type_desc,
 								 (defaultTypeBin ?
-								  stringToNode(defaultTypeBin) :
+								  nodeTreeToNode(defaultTypeBin) :
 								  NULL),
 								 typacl,
 								 relationKind,
@@ -578,7 +579,7 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 		datum = heap_getattr(typeTuple, Anum_pg_type_typdefaultbin,
 							 RelationGetDescr(typeCatalog), &isNull);
 		if (!isNull)
-			defaultExpr = stringToNode(TextDatumGetCString(datum));
+			defaultExpr = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 	}
 	/* Extract typacl if caller didn't pass it */
 	if (typacl == NULL)

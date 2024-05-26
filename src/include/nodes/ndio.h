@@ -8,9 +8,11 @@
 #include "lib/stringinfo.h"
 #include "nodes/nodedesc.h"
 
-typedef bool (*WriteTypedValue)(StringInfo into, void *field, uint32 flags);
+
+typedef bool (*WriteTypedValue)(StringInfo into, const void *field,
+								uint32 flags);
 typedef bool (*WriteTypedField)(StringInfo into, NodeFieldDesc desc,
-								void *field, uint32 flags);
+								const void *field, uint32 flags);
 
 typedef struct NodeWriterData {
 	int32	flags;
@@ -87,7 +89,6 @@ extern const NodeWriter BinaryNodeWriter;
 extern const NodeReader TextNodeReader;
 extern const NodeWriter TextNodeWriter;
 
-extern const NodeReader JSONNodeReader;
 extern const NodeWriter JSONNodeWriter;
 
 #endif //POSTGRESQL_NDIO_H

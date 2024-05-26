@@ -2067,16 +2067,16 @@ StoreRelCheck(Relation rel, const char *ccname, Node *expr,
 			  bool is_validated, bool is_local, int inhcount,
 			  bool is_no_inherit, bool is_internal)
 {
-	char	   *ccbin;
+	NodeTree	ccbin;
 	List	   *varList;
 	int			keycount;
 	int16	   *attNos;
 	Oid			constrOid;
 
 	/*
-	 * Flatten expression to string form for storage.
+	 * Flatten expression to nodeTree for storage.
 	 */
-	ccbin = nodeToString(expr);
+	ccbin = nodeToNodeTree(expr);
 
 	/*
 	 * Find columns of rel that are used in expr
@@ -2156,8 +2156,6 @@ StoreRelCheck(Relation rel, const char *ccname, Node *expr,
 							  inhcount, /* coninhcount */
 							  is_no_inherit,	/* connoinherit */
 							  is_internal); /* internally constructed? */
-
-	pfree(ccbin);
 
 	return constrOid;
 }
@@ -2374,7 +2372,7 @@ AddRelationNewConstraints(Relation rel,
 				 * Here, we assume the parser will only pass us valid CHECK
 				 * expressions, so we do no particular checking.
 				 */
-				expr = stringToNode(cdef->cooked_expr);
+				expr = (Node *) nodeTreeToNode(cdef->cooked_expr);
 			}
 
 			/*
@@ -2544,7 +2542,7 @@ MergeWithExistingConstraint(Relation rel, const char *ccname, Node *expr,
 			if (isnull)
 				elog(ERROR, "null conbin for rel %s",
 					 RelationGetRelationName(rel));
-			if (equal(expr, stringToNode(TextDatumGetCString(val))))
+			if (equal(expr, nodeTreeToNode((NodeTree) DatumGetPointer(val))))
 				found = true;
 		}
 
@@ -3326,7 +3324,7 @@ StorePartitionKey(Relation rel,
 	int2vector *partattrs_vec;
 	oidvector  *partopclass_vec;
 	oidvector  *partcollation_vec;
-	Datum		partexprDatum;
+	NodeTree	partexprTree;
 	Relation	pg_partitioned_table;
 	HeapTuple	tuple;
 	Datum		values[Natts_pg_partitioned_table];
@@ -3345,19 +3343,15 @@ StorePartitionKey(Relation rel,
 	/* Convert the expressions (if any) to a text datum */
 	if (partexprs)
 	{
-		char	   *exprString;
-
-		exprString = nodeToString(partexprs);
-		partexprDatum = CStringGetTextDatum(exprString);
-		pfree(exprString);
+		partexprTree = nodeToNodeTree(partexprs);
 	}
 	else
-		partexprDatum = (Datum) 0;
+		partexprTree = NULL;
 
 	pg_partitioned_table = table_open(PartitionedRelationId, RowExclusiveLock);
 
 	/* Only this can ever be NULL */
-	if (!partexprDatum)
+	if (!partexprTree)
 		nulls[Anum_pg_partitioned_table_partexprs - 1] = true;
 
 	values[Anum_pg_partitioned_table_partrelid - 1] = ObjectIdGetDatum(RelationGetRelid(rel));
@@ -3367,7 +3361,7 @@ StorePartitionKey(Relation rel,
 	values[Anum_pg_partitioned_table_partattrs - 1] = PointerGetDatum(partattrs_vec);
 	values[Anum_pg_partitioned_table_partclass - 1] = PointerGetDatum(partopclass_vec);
 	values[Anum_pg_partitioned_table_partcollation - 1] = PointerGetDatum(partcollation_vec);
-	values[Anum_pg_partitioned_table_partexprs - 1] = partexprDatum;
+	values[Anum_pg_partitioned_table_partexprs - 1] = PointerGetDatum(partexprTree);
 
 	tuple = heap_form_tuple(RelationGetDescr(pg_partitioned_table), values, nulls);
 
@@ -3505,7 +3499,8 @@ StorePartitionBound(Relation rel, Relation parent, PartitionBoundSpec *bound)
 	memset(new_val, 0, sizeof(new_val));
 	memset(new_null, false, sizeof(new_null));
 	memset(new_repl, false, sizeof(new_repl));
-	new_val[Anum_pg_class_relpartbound - 1] = CStringGetTextDatum(nodeToString(bound));
+	new_val[Anum_pg_class_relpartbound - 1] =
+		PointerGetDatum(nodeToNodeTree(bound));
 	new_null[Anum_pg_class_relpartbound - 1] = false;
 	new_repl[Anum_pg_class_relpartbound - 1] = true;
 	newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),

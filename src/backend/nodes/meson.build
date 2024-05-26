@@ -7,6 +7,7 @@ backend_sources += files(
   'makefuncs.c',
   'multibitmapset.c',
   'ndio_binary.c',
+  'ndio_json.c',
   'ndio_text.c',
   'nodeFuncs.c',
   'params.c',

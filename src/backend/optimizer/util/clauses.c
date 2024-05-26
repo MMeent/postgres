@@ -4337,16 +4337,12 @@ add_function_defaults(List *args, int pronargs, HeapTuple func_tuple)
 static List *
 fetch_function_defaults(HeapTuple func_tuple)
 {
-	List	   *defaults;
 	Datum		proargdefaults;
-	char	   *str;
 
 	proargdefaults = SysCacheGetAttrNotNull(PROCOID, func_tuple,
 											Anum_pg_proc_proargdefaults);
-	str = TextDatumGetCString(proargdefaults);
-	defaults = castNode(List, stringToNode(str));
-	pfree(str);
-	return defaults;
+
+	return castNode(List, nodeTreeToNode((NodeTree) DatumGetPointer(proargdefaults)));
 }
 
 /*
@@ -4638,7 +4634,7 @@ inline_function(Oid funcid, Oid result_type, Oid result_collid,
 		Node	   *n;
 		List	   *query_list;
 
-		n = stringToNode(TextDatumGetCString(tmp));
+		n = nodeTreeToNode((NodeTree) DatumGetPointer(tmp));
 		if (IsA(n, List))
 			query_list = linitial_node(List, castNode(List, n));
 		else
@@ -5191,7 +5187,7 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	{
 		Node	   *n;
 
-		n = stringToNode(TextDatumGetCString(tmp));
+		n = nodeTreeToNode((NodeTree) DatumGetPointer(tmp));
 		if (IsA(n, List))
 			querytree_list = linitial_node(List, castNode(List, n));
 		else

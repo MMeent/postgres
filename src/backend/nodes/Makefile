@@ -24,6 +24,7 @@ OBJS = \
 	multibitmapset.o \
 	ndio.o \
 	ndio_binary.o \
+	ndio_json.o \
 	ndio_text.o \
 	nodeFuncs.o \
 	nodedesc.o \

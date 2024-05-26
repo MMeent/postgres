@@ -29,6 +29,7 @@
 #include "utils/datum.h"
 #include "utils/resowner.h"
 #include "utils/syscache.h"
+#include "nodes/nodeFuncs.h"
 
 /* ResourceOwner callbacks to hold tupledesc references  */
 static void ResOwnerReleaseTupleDesc(Datum res);
@@ -196,7 +197,7 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			cpy->defval = (AttrDefault *) palloc(cpy->num_defval * sizeof(AttrDefault));
 			memcpy(cpy->defval, constr->defval, cpy->num_defval * sizeof(AttrDefault));
 			for (i = cpy->num_defval - 1; i >= 0; i--)
-				cpy->defval[i].adbin = pstrdup(constr->defval[i].adbin);
+				cpy->defval[i].adbin = pg_detoast_datum_copy(constr->defval[i].adbin);
 		}
 
 		if (constr->missing)
@@ -223,7 +224,7 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			for (i = cpy->num_check - 1; i >= 0; i--)
 			{
 				cpy->check[i].ccname = pstrdup(constr->check[i].ccname);
-				cpy->check[i].ccbin = pstrdup(constr->check[i].ccbin);
+				cpy->check[i].ccbin = pg_detoast_datum_copy(constr->check[i].ccbin);
 				cpy->check[i].ccvalid = constr->check[i].ccvalid;
 				cpy->check[i].ccnoinherit = constr->check[i].ccnoinherit;
 			}
@@ -505,7 +506,8 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 
 			if (defval1->adnum != defval2->adnum)
 				return false;
-			if (strcmp(defval1->adbin, defval2->adbin) != 0)
+			if (VARSIZE(defval1) != VARSIZE(defval2) &&
+				strncmp(VARDATA(defval1->adbin), VARDATA(defval2->adbin), VARSIZE(defval1)) != 0)
 				return false;
 		}
 		if (constr1->missing)
@@ -546,7 +548,9 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 			ConstrCheck *check2 = constr2->check + i;
 
 			if (!(strcmp(check1->ccname, check2->ccname) == 0 &&
-				  strcmp(check1->ccbin, check2->ccbin) == 0 &&
+				  VARSIZE(check1->ccbin) == VARSIZE(check2->ccname) &&
+				  strncmp((char *) check1->ccbin, (char *) check2->ccbin,
+						  VARSIZE(check1->ccbin)) == 0 &&
 				  check1->ccvalid == check2->ccvalid &&
 				  check1->ccnoinherit == check2->ccnoinherit))
 				return false;
@@ -908,7 +912,7 @@ TupleDescGetDefault(TupleDesc tupdesc, AttrNumber attnum)
 		{
 			if (attrdef[i].adnum == attnum)
 			{
-				result = stringToNode(attrdef[i].adbin);
+				result = nodeTreeToNode(attrdef[i].adbin);
 				break;
 			}
 		}

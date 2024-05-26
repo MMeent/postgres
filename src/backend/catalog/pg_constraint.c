@@ -71,7 +71,7 @@ CreateConstraintEntry(const char *constraintName,
 					  char foreignMatchType,
 					  const Oid *exclOp,
 					  Node *conExpr,
-					  const char *conBin,
+					  NodeTree conBin,
 					  bool conIsLocal,
 					  int conInhCount,
 					  bool conNoInherit,
@@ -226,8 +226,8 @@ CreateConstraintEntry(const char *constraintName,
 	else
 		nulls[Anum_pg_constraint_conexclop - 1] = true;
 
-	if (conBin)
-		values[Anum_pg_constraint_conbin - 1] = CStringGetTextDatum(conBin);
+	if (conBin != NULL)
+		values[Anum_pg_constraint_conbin - 1] = PointerGetDatum(conBin);
 	else
 		nulls[Anum_pg_constraint_conbin - 1] = true;
 

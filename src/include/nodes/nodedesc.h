@@ -28,10 +28,11 @@ typedef enum NodeFieldType {
 	NFT_DOUBLE,
 	NFT_ENUM,
 	/* various by-ref field types */
+	NFT_VARLENA,
 	NFT_CSTRING,
 	NFT_NODE,		/* any node */
 	/* invalid unique type values follow */
-	NFT_NUM_TYPES = 16,			/* invalid, but used as n_*/
+	NFT_NUM_TYPES = 17,			/* invalid, but used as n_*/
 	/* used as bit showing array types. */
 	NFT_ARRAYTYPE = 32,
 } NodeFieldType;

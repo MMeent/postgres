@@ -19,10 +19,11 @@
 #include "nodes/ndio.h"
 #include "nodes/nodes.h"
 #include "nodes/nodedesc.h"
-#include "nodes/plannodes.h"
 #include "nodes/readfuncs.h"
 #include "nodes/replnodes.h"
 #include "common/shortest_dec.h"
+#include "fmgr.h"
+#include "varatt.h"
 
 
 #define CHECK_CAN_READ(info, length, ...) \
@@ -291,6 +292,62 @@ tnr_end_field(StringInfo from, uint32 flags)
 }
 
 static bool
+tnvr_VARLENA(StringInfo from, void *field, uint32 flags)
+{
+	char	  **tfield = (char **) field;
+	const char *data_start;
+	uint32		dat_len;
+	int			len;
+	int			i;
+	struct varlena *data;
+
+	skip_past_next_token_character(from, '(');
+
+	data_start = read_next_token(from, &len);
+	dat_len = atoi(data_start);
+
+	Assert(len >= sizeof (struct varlena));
+
+	data = palloc(dat_len);
+
+	for (i = 0; i + (sizeof(uint32) - 1) < dat_len; i += sizeof(uint32))
+	{
+		uint32	value;
+		data_start = read_next_token(from, &len);
+		value = strtoul(data_start, NULL, 10);
+		memcpy(VARDATA(data) + i, &value, sizeof(uint32));
+	}
+	for (i = 0; i < dat_len; i++)
+	{
+		uint8	value;
+		data_start = read_next_token(from, &len);
+		value = strtoul(data_start, NULL, 10);
+		memcpy(VARDATA(data) + i, &value, sizeof(uint8));
+	}
+
+	*tfield = nullable_string(data_start, len);
+	return true;
+}
+
+static bool
+tnfr_VARLENA(StringInfo from, NodeFieldDesc desc,
+				 void *field, uint32 flags)
+{
+	char	  **tfield = (char **) field;
+
+	CHECK_FLD_IS_COMPATIBLE(desc);
+
+	if (!next_node_field_is(from, desc))
+	{
+		*tfield = NULL;
+		return false;
+	}
+
+	return tnvr_VARLENA(from, field, flags);
+}
+
+
+static bool
 tnvr_CSTRING(StringInfo from, void *field, uint32 flags)
 {
 	char	  **tfield = (char **) field;
@@ -453,6 +510,7 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsfr(CHAR),
 		tsfr(DOUBLE),
 		[NFT_ENUM] = &tnfr_INT, /* enum has the same layout as INT */
+		tsfr(VARLENA),
 		tsfr(CSTRING),
 		tsfr(NODE),
 	},
@@ -471,6 +529,7 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsvr(CHAR),
 		tsvr(DOUBLE),
 		[NFT_ENUM] = &tnvr_INT, /* enum has the same layout as INT */
+		tsvr(VARLENA),
 		tsvr(CSTRING),
 		tsvr(NODE),
 	},
@@ -588,9 +647,53 @@ tnw_end_field(StringInfo into, uint32 flags)
 }
 
 static bool
-tnvw_CSTRING(StringInfo into, void *field, uint32 flags)
+tnvw_VARLENA(StringInfo into, const void *field, uint32 flags)
 {
-	char	   *value = *(char **) field;
+	struct varlena *vlna = *(struct varlena **) field;
+	struct varlena *vlnb;
+	char		   *data;
+	uint32			vl_len_;
+	int				i;
+
+	vlnb = pg_detoast_datum(vlna);
+	vl_len_ = VARSIZE_ANY_EXHDR(vlnb);
+	data = VARDATA(vlnb);
+
+	appendStringInfo(into, "(%d", vl_len_ + VARHDRSZ);
+
+	for (i = 0; i + (sizeof(uint32) - 1) < vl_len_; i += sizeof(uint32))
+	{
+		appendStringInfo(into, " %d", *(uint32 *) (data + i));
+	}
+	for (; i < vl_len_; i++)
+		appendStringInfo(into, " %d", *(data + i));
+
+	appendStringInfoCharMacro(into, ')');
+
+	if (vlna != vlnb)
+		pfree(vlnb);
+
+	return true;
+}
+
+static bool
+tnfw_VARLENA(StringInfo into, NodeFieldDesc desc, const void *field,
+				 uint32 flags)
+{
+	CHECK_FLD_IS_COMPATIBLE(desc);
+
+	if ((*(const void **) field) == NULL)
+		return false;
+
+	appendFieldName(into, desc);
+
+	return tnvw_VARLENA(into, field, flags);
+}
+
+static bool
+tnvw_CSTRING(StringInfo into, const void *field, uint32 flags)
+{
+	const char *value = *(const char **) field;
 
 	outToken(into, value);
 
@@ -598,14 +701,13 @@ tnvw_CSTRING(StringInfo into, void *field, uint32 flags)
 }
 
 static bool
-tnfw_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+tnfw_CSTRING(StringInfo into, NodeFieldDesc desc, const void *field,
+			 uint32 flags)
 {
-	char	  **tfield = field;
-	char	   *value = *tfield;
 
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (value == NULL)
+	if ((*(void **) field) == NULL)
 		return false;
 
 	appendFieldName(into, desc);
@@ -614,7 +716,7 @@ tnfw_CSTRING(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 }
 
 static bool
-tnvw_NODE(StringInfo into, void *field, uint32 flags)
+tnvw_NODE(StringInfo into, const void *field, uint32 flags)
 {
 	Node	   *node = *(Node **) field;
 
@@ -622,13 +724,12 @@ tnvw_NODE(StringInfo into, void *field, uint32 flags)
 }
 
 static bool
-tnfw_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
+tnfw_NODE(StringInfo into, NodeFieldDesc desc, const void *field,
+		  uint32 flags)
 {
-	Node	   *node = *(Node **) field;
-
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (node == NULL)
+	if (*(Node **) field == NULL)
 		return false;
 
 	appendFieldName(into, desc);
@@ -637,7 +738,7 @@ tnfw_NODE(StringInfo into, NodeFieldDesc desc, void *field, uint32 flags)
 }
 
 static bool
-tnfw_unimplemented(StringInfo into, NodeFieldDesc desc, void *field,
+tnfw_unimplemented(StringInfo into, NodeFieldDesc desc, const void *field,
 				   uint32 flags)
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
@@ -646,7 +747,7 @@ tnfw_unimplemented(StringInfo into, NodeFieldDesc desc, void *field,
 }
 
 static bool
-tnvw_unimplemented(StringInfo into, void *field,
+tnvw_unimplemented(StringInfo into, const void *field,
 				   uint32 flags)
 {
 	return false;
@@ -654,7 +755,7 @@ tnvw_unimplemented(StringInfo into, void *field,
 
 #define TextScalarFieldWriter(_type_, _uctype_, type_default, write_value) \
 static bool \
-tnvw_##_uctype_(StringInfo into, void *field, uint32 flags) \
+tnvw_##_uctype_(StringInfo into, const void *field, uint32 flags) \
 { \
 	_type_		value = *(_type_ *) field; \
 	\
@@ -663,7 +764,7 @@ tnvw_##_uctype_(StringInfo into, void *field, uint32 flags) \
 	return true;\
 } \
 static bool \
-tnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, void *field, \
+tnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 				uint32 flags) \
 { \
 	CHECK_FLD_IS_COMPATIBLE(desc); \
@@ -731,6 +832,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsfw(CHAR),
 		tsfw(DOUBLE),
 		[NFT_ENUM] = &tnfw_INT, /* enum has the same layout as INT */
+		tsfw(VARLENA),
 		tsfw(CSTRING),
 		tsfw(NODE),
 	},
@@ -749,6 +851,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsvw(CHAR),
 		tsvw(DOUBLE),
 		[NFT_ENUM] = &tnvw_INT, /* enum has the same layout as INT */
+		tsvw(VARLENA),
 		tsvw(CSTRING),
 		tsvw(NODE),
 	}

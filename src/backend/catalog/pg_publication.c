@@ -32,6 +32,7 @@
 #include "catalog/pg_type.h"
 #include "commands/publicationcmds.h"
 #include "funcapi.h"
+#include "nodes/nodeFuncs.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/catcache.h"
@@ -417,7 +418,8 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 
 	/* Add qualifications, if available */
 	if (pri->whereClause != NULL)
-		values[Anum_pg_publication_rel_prqual - 1] = CStringGetTextDatum(nodeToString(pri->whereClause));
+		values[Anum_pg_publication_rel_prqual - 1]
+			= PointerGetDatum(nodeToNodeTree(pri->whereClause));
 	else
 		nulls[Anum_pg_publication_rel_prqual - 1] = true;
 

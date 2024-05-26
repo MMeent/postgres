@@ -141,12 +141,9 @@ RelationBuildPartitionKey(Relation relation)
 							Anum_pg_partitioned_table_partexprs, &isnull);
 	if (!isnull)
 	{
-		char	   *exprString;
 		Node	   *expr;
 
-		exprString = TextDatumGetCString(datum);
-		expr = stringToNode(exprString);
-		pfree(exprString);
+		expr = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 
 		/*
 		 * Run the expressions through const-simplification since the planner
@@ -376,7 +373,7 @@ generate_partition_qual(Relation rel)
 		PartitionBoundSpec *bound;
 
 		bound = castNode(PartitionBoundSpec,
-						 stringToNode(TextDatumGetCString(boundDatum)));
+						 nodeTreeToNode((NodeTree) DatumGetPointer(boundDatum)));
 
 		my_qual = get_qual_from_partbound(parent, bound);
 	}

@@ -48,6 +48,7 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#include "nodes/nodeFuncs.h"
 
 /* Hook for plugins to get control in get_attavgwidth() */
 get_attavgwidth_hook_type get_attavgwidth_hook = NULL;
@@ -2471,7 +2472,7 @@ get_typdefault(Oid typid)
 	if (!isNull)
 	{
 		/* We have an expression default */
-		expr = stringToNode(TextDatumGetCString(datum));
+		expr = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 	}
 	else
 	{

@@ -4320,7 +4320,7 @@ get_qual_for_range(Relation parent, PartitionBoundSpec *spec,
 			datum = SysCacheGetAttrNotNull(RELOID, tuple,
 										   Anum_pg_class_relpartbound);
 			bspec = (PartitionBoundSpec *)
-				stringToNode(TextDatumGetCString(datum));
+				nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 			if (!IsA(bspec, PartitionBoundSpec))
 				elog(ERROR, "expected PartitionBoundSpec");
 
@@ -5126,7 +5126,7 @@ get_partition_bound_spec(Oid partOid, RangeVar *name)
 		elog(ERROR, "partition bound for relation \"%s\" is null",
 			 name->relname);
 
-	boundspec = stringToNode(TextDatumGetCString(datum));
+	boundspec = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 
 	if (!IsA(boundspec, PartitionBoundSpec))
 		elog(ERROR, "expected PartitionBoundSpec for relation \"%s\"",

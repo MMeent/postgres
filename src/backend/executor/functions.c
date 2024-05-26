@@ -684,7 +684,7 @@ init_sql_fcache(FunctionCallInfo fcinfo, Oid collation, bool lazyEvalOK)
 		Node	   *n;
 		List	   *stored_query_list;
 
-		n = stringToNode(TextDatumGetCString(tmp));
+		n = nodeTreeToNode((NodeTree) DatumGetPointer(tmp));
 		if (IsA(n, List))
 			stored_query_list = linitial_node(List, castNode(List, n));
 		else

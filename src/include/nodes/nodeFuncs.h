@@ -64,6 +64,13 @@ extern void fix_opfuncids(Node *node);
 extern void set_opfuncid(OpExpr *opexpr);
 extern void set_sa_opfuncid(ScalarArrayOpExpr *opexpr);
 
+extern NodeTree nodeToNodeTree(const void *obj);
+extern NodeTree nodeToNodeTreeWithLocations(const void *obj);
+
+extern void *nodeTreeToNode(NodeTree tree);
+extern void *nodeTreeToNodeWithLocations(NodeTree tree);
+
+
 /* Is clause a FuncExpr clause? */
 static inline bool
 is_funcclause(const void *clause)

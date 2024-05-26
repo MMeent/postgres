@@ -34,6 +34,7 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/varlena.h"
+#include "nodes/nodeFuncs.h"
 
 PG_MODULE_MAGIC;
 
@@ -954,13 +955,13 @@ pgoutput_row_filter_init(PGOutputData *data, List *publications,
 		/* Form the per pubaction row filter lists. */
 		if (pub->pubactions.pubinsert && !no_filter[PUBACTION_INSERT])
 			rfnodes[PUBACTION_INSERT] = lappend(rfnodes[PUBACTION_INSERT],
-												TextDatumGetCString(rfdatum));
+												(NodeTree) DatumGetPointer(rfdatum));
 		if (pub->pubactions.pubupdate && !no_filter[PUBACTION_UPDATE])
 			rfnodes[PUBACTION_UPDATE] = lappend(rfnodes[PUBACTION_UPDATE],
-												TextDatumGetCString(rfdatum));
+												(NodeTree) DatumGetPointer(rfdatum));
 		if (pub->pubactions.pubdelete && !no_filter[PUBACTION_DELETE])
 			rfnodes[PUBACTION_DELETE] = lappend(rfnodes[PUBACTION_DELETE],
-												TextDatumGetCString(rfdatum));
+												(NodeTree) DatumGetPointer(rfdatum));
 
 		ReleaseSysCache(rftuple);
 	}							/* loop all subscribed publications */
@@ -996,7 +997,7 @@ pgoutput_row_filter_init(PGOutputData *data, List *publications,
 				continue;
 
 			foreach(lc, rfnodes[idx])
-				filters = lappend(filters, stringToNode((char *) lfirst(lc)));
+				filters = lappend(filters, nodeTreeToNode((NodeTree) lfirst(lc)));
 
 			/* combine the row filter and cache the ExprState */
 			rfnode = make_orclause(filters);

@@ -315,7 +315,7 @@ pub_rf_contains_invalid_column(Oid pubid, Relation relation, List *ancestors,
 										 INDEX_ATTR_BITMAP_IDENTITY_KEY);
 
 		context.bms_replident = bms;
-		rfnode = stringToNode(TextDatumGetCString(rfdatum));
+		rfnode = nodeTreeToNode((NodeTree) DatumGetPointer(rfdatum));
 		result = contain_invalid_rfcolumn_walker(rfnode, &context);
 	}
 
@@ -1153,7 +1153,7 @@ AlterPublicationTables(AlterPublicationStmt *stmt, HeapTuple tup,
 												   Anum_pg_publication_rel_prqual,
 												   &isnull);
 				if (!isnull)
-					oldrelwhereclause = stringToNode(TextDatumGetCString(whereClauseDatum));
+					oldrelwhereclause = nodeTreeToNode((NodeTree) DatumGetPointer(whereClauseDatum));
 
 				/* Transform the int2vector column list to a bitmap. */
 				columnListDatum = SysCacheGetAttr(PUBLICATIONRELMAP, rftuple,

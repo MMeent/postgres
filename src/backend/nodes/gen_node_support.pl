@@ -141,6 +141,10 @@ my @simple_scalar_types = qw(
 
 my @scalar_types = @simple_scalar_types;
 
+my @varlena_types = qw(
+  NodeTree
+);
+
 # collect enum types
 my @enum_types;
 
@@ -860,6 +864,10 @@ _equal${n}(const $n *a, const $n *b)
 			print $cff "\tCOPY_ARRAY_FIELD($f);\n" unless $copy_ignore;
 			print $eff "\tCOMPARE_ARRAY_FIELD($f);\n" unless $equal_ignore;
 		}
+		elsif (elem $t, @varlena_types)
+		{
+			# TODO: 
+		}
 		elsif ($t eq 'struct CustomPathMethods*'
 			|| $t eq 'struct CustomScanMethods*')
 		{
@@ -1197,6 +1205,10 @@ _read${n}(void)
 				  unless $no_read;
 			}
 		}
+		elsif (elem $t, @varlena_types)
+		{
+			# TODO: 
+		}
 		elsif ($t eq 'struct CustomPathMethods*'
 			|| $t eq 'struct CustomScanMethods*')
 		{
@@ -1436,6 +1448,13 @@ foreach my $n (@node_types)
 		{
 			push (@subflds, {
 				type => 'NFT_ENUM',
+				name => $f,
+			});
+		}
+		elsif (elem $t, @varlena_types)
+		{
+			push (@subflds, {
+				type => 'NFT_VARLENA',
 				name => $f,
 			});
 		}

@@ -21,6 +21,7 @@
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "nodes/bitmapset.h"
+#include "nodes/nodeFuncs.h"
 #include "nodes/nodes.h"
 #include "nodes/pg_list.h"
 #include "utils/datum.h"
@@ -372,6 +373,7 @@ outDatum(StringInfo str, Datum value, int typlen, bool typbyval)
 
 #include "outfuncs.funcs.c"
 #include "nodes/ndio.h"
+#include "utils/builtins.h"
 
 
 /*
@@ -768,7 +770,7 @@ outNode(StringInfo str, const void *obj)
  * string is no longer available.
  */
 static char *
-nodeToStringInternal(const void *obj, bool write_loc_fields)
+nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 {
 	StringInfoData str;
 	bool		save_write_location_fields;
@@ -821,7 +823,40 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 
 	write_location_fields = save_write_location_fields;
 
+	if (len)
+		*len = str.len;
+
 	return str.data;
+}
+
+NodeTree
+nodeToNodeTree(const void *obj)
+{
+	int			len;
+	char	   *data;
+	NodeTree	result;
+
+	data = nodeToStringInternal(obj, false, &len);
+	result = (NodeTree) cstring_to_text_with_len(data, len + 1);
+
+	pfree(data);
+
+	return result;
+}
+
+NodeTree
+nodeToNodeTreeWithLocations(const void *obj)
+{
+	int			len;
+	char	   *data;
+	NodeTree	result;
+
+	data = nodeToStringInternal(obj, true, &len);
+	result = (NodeTree) cstring_to_text_with_len(data, len + 1);
+
+	pfree(data);
+
+	return result;
 }
 
 /*
@@ -830,13 +865,13 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 char *
 nodeToString(const void *obj)
 {
-	return nodeToStringInternal(obj, false);
+	return nodeToStringInternal(obj, false, NULL);
 }
 
 char *
 nodeToStringWithLocations(const void *obj)
 {
-	return nodeToStringInternal(obj, true);
+	return nodeToStringInternal(obj, true, NULL);
 }
 
 

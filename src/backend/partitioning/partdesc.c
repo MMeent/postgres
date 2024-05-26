@@ -30,6 +30,7 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+#include "nodes/nodeFuncs.h"
 
 typedef struct PartitionDirectoryData
 {
@@ -191,7 +192,7 @@ RelationBuildPartitionDesc(Relation rel, bool omit_detached)
 									Anum_pg_class_relpartbound,
 									&isnull);
 			if (!isnull)
-				boundspec = stringToNode(TextDatumGetCString(datum));
+				boundspec = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 			ReleaseSysCache(tuple);
 		}
 
@@ -228,7 +229,7 @@ RelationBuildPartitionDesc(Relation rel, bool omit_detached)
 			datum = heap_getattr(tuple, Anum_pg_class_relpartbound,
 								 RelationGetDescr(pg_class), &isnull);
 			if (!isnull)
-				boundspec = stringToNode(TextDatumGetCString(datum));
+				boundspec = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 			systable_endscan(scan);
 			table_close(pg_class, AccessShareLock);
 		}

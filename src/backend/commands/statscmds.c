@@ -471,13 +471,7 @@ CreateStatistics(CreateStatsStmt *stmt)
 
 	/* convert the expressions (if any) to a text datum */
 	if (stxexprs != NIL)
-	{
-		char	   *exprsString;
-
-		exprsString = nodeToString(stxexprs);
-		exprsDatum = CStringGetTextDatum(exprsString);
-		pfree(exprsString);
-	}
+		exprsDatum = PointerGetDatum(nodeToNodeTree(stxexprs));
 	else
 		exprsDatum = (Datum) 0;
 

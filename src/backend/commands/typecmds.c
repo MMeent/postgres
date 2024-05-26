@@ -73,6 +73,7 @@
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+#include "nodes/nodeFuncs.h"
 
 
 /* result structure for get_rels_with_domain() */
@@ -126,14 +127,14 @@ static Oid	findTypeSubscriptingFunction(List *procname, Oid typeOid);
 static Oid	findRangeSubOpclass(List *opcname, Oid subtype);
 static Oid	findRangeCanonicalFunction(List *procname, Oid typeOid);
 static Oid	findRangeSubtypeDiffFunction(List *procname, Oid subtype);
-static void validateDomainCheckConstraint(Oid domainoid, const char *ccbin);
+static void validateDomainCheckConstraint(Oid domainoid, NodeTree ccbin);
 static void validateDomainNotNullConstraint(Oid domainoid);
 static List *get_rels_with_domain(Oid domainOid, LOCKMODE lockmode);
 static void checkEnumOwner(HeapTuple tup);
-static char *domainAddCheckConstraint(Oid domainOid, Oid domainNamespace,
-									  Oid baseTypeOid,
-									  int typMod, Constraint *constr,
-									  const char *domainName, ObjectAddress *constrAddr);
+static NodeTree domainAddCheckConstraint(Oid domainOid, Oid domainNamespace,
+										 Oid baseTypeOid,
+										 int typMod, Constraint *constr,
+										 const char *domainName, ObjectAddress *constrAddr);
 static Node *replace_domain_constraint_value(ParseState *pstate,
 											 ColumnRef *cref);
 static void domainAddNotNullConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
@@ -715,7 +716,7 @@ DefineDomain(CreateDomainStmt *stmt)
 	Datum		datum;
 	bool		isnull;
 	char	   *defaultValue = NULL;
-	char	   *defaultValueBin = NULL;
+	NodeTree	defaultValueBin = NULL;
 	bool		saw_default = false;
 	bool		typNotNull = false;
 	bool		nullDefined = false;
@@ -856,7 +857,7 @@ DefineDomain(CreateDomainStmt *stmt)
 	datum = SysCacheGetAttr(TYPEOID, typeTup,
 							Anum_pg_type_typdefaultbin, &isnull);
 	if (!isnull)
-		defaultValueBin = TextDatumGetCString(datum);
+		defaultValueBin = (NodeTree) DatumGetPointer(datum);
 
 	/*
 	 * Run through constraints manually to avoid the additional processing
@@ -928,7 +929,7 @@ DefineDomain(CreateDomainStmt *stmt)
 						defaultValue =
 							deparse_expression(defaultExpr,
 											   NIL, false, false);
-						defaultValueBin = nodeToString(defaultExpr);
+						defaultValueBin = nodeToNodeTree(defaultExpr);
 					}
 				}
 				else
@@ -2650,7 +2651,8 @@ AlterDomainDefault(List *names, Node *defaultRaw)
 			/*
 			 * Form an updated tuple with the new default and write it back.
 			 */
-			new_record[Anum_pg_type_typdefaultbin - 1] = CStringGetTextDatum(nodeToString(defaultExpr));
+			new_record[Anum_pg_type_typdefaultbin - 1]
+				= PointerGetDatum(nodeToNodeTree(defaultExpr));
 
 			new_record_repl[Anum_pg_type_typdefaultbin - 1] = true;
 			new_record[Anum_pg_type_typdefault - 1] = CStringGetTextDatum(defaultValue);
@@ -2903,7 +2905,7 @@ AlterDomainAddConstraint(List *names, Node *newConstraint,
 	HeapTuple	tup;
 	Form_pg_type typTup;
 	Constraint *constr;
-	char	   *ccbin;
+	NodeTree	ccbin;
 	ObjectAddress address = InvalidObjectAddress;
 
 	/* Make a TypeName so we can use standard type lookup machinery */
@@ -3043,9 +3045,8 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 	HeapTuple	tup;
 	Form_pg_constraint con;
 	Form_pg_constraint copy_con;
-	char	   *conbin;
+	NodeTree	conbin;
 	SysScanDesc scan;
-	Datum		val;
 	HeapTuple	tuple;
 	HeapTuple	copyTuple;
 	ScanKeyData skey[3];
@@ -3100,8 +3101,7 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 				 errmsg("constraint \"%s\" of domain \"%s\" is not a check constraint",
 						constrName, TypeNameToString(typename))));
 
-	val = SysCacheGetAttrNotNull(CONSTROID, tuple, Anum_pg_constraint_conbin);
-	conbin = TextDatumGetCString(val);
+	conbin = (NodeTree) DatumGetPointer(SysCacheGetAttrNotNull(CONSTROID, tuple, Anum_pg_constraint_conbin));
 
 	validateDomainCheckConstraint(domainoid, conbin);
 
@@ -3198,9 +3198,9 @@ validateDomainNotNullConstraint(Oid domainoid)
  * constraint expression.
  */
 static void
-validateDomainCheckConstraint(Oid domainoid, const char *ccbin)
+validateDomainCheckConstraint(Oid domainoid, NodeTree ccbin)
 {
-	Expr	   *expr = (Expr *) stringToNode(ccbin);
+	Expr	   *expr = (Expr *) nodeTreeToNode(ccbin);
 	List	   *rels;
 	ListCell   *rt;
 	EState	   *estate;
@@ -3506,13 +3506,13 @@ checkDomainOwner(HeapTuple tup)
 /*
  * domainAddCheckConstraint - code shared between CREATE and ALTER DOMAIN
  */
-static char *
+static NodeTree
 domainAddCheckConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
 						 int typMod, Constraint *constr,
 						 const char *domainName, ObjectAddress *constrAddr)
 {
 	Node	   *expr;
-	char	   *ccbin;
+	NodeTree	ccbin;
 	ParseState *pstate;
 	CoerceToDomainValue *domVal;
 	Oid			ccoid;
@@ -3585,7 +3585,7 @@ domainAddCheckConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
 	/*
 	 * Convert to string form for storage.
 	 */
-	ccbin = nodeToString(expr);
+	ccbin = nodeToNodeTree(expr);
 
 	/*
 	 * Store the constraint in pg_constraint

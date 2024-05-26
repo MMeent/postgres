@@ -123,7 +123,7 @@ typedef struct ExecParallelInitializeDSMContext
 } ExecParallelInitializeDSMContext;
 
 /* Helper functions that run in the parallel leader. */
-static char *ExecSerializePlan(Plan *plan, EState *estate);
+static NodeTree ExecSerializePlan(Plan *plan, EState *estate);
 static bool ExecParallelEstimate(PlanState *planstate,
 								 ExecParallelEstimateContext *e);
 static bool ExecParallelInitializeDSM(PlanState *planstate,
@@ -141,7 +141,7 @@ static DestReceiver *ExecParallelGetReceiver(dsm_segment *seg, shm_toc *toc);
 /*
  * Create a serialized representation of the plan to be sent to each worker.
  */
-static char *
+static NodeTree
 ExecSerializePlan(Plan *plan, EState *estate)
 {
 	PlannedStmt *pstmt;
@@ -213,7 +213,7 @@ ExecSerializePlan(Plan *plan, EState *estate)
 	pstmt->stmt_len = -1;
 
 	/* Return serialized copy of our dummy PlannedStmt. */
-	return nodeToString(pstmt);
+	return nodeToNodeTree(pstmt);
 }
 
 /*
@@ -593,7 +593,7 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate,
 	ExecParallelEstimateContext e;
 	ExecParallelInitializeDSMContext d;
 	FixedParallelExecutorState *fpes;
-	char	   *pstmt_data;
+	NodeTree	pstmt_data;
 	char	   *pstmt_space;
 	char	   *paramlistinfo_space;
 	BufferUsage *bufusage_space;
@@ -651,7 +651,7 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate,
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 
 	/* Estimate space for serialized PlannedStmt. */
-	pstmt_len = strlen(pstmt_data) + 1;
+	pstmt_len = VARSIZE(pstmt_data);
 	shm_toc_estimate_chunk(&pcxt->estimator, pstmt_len);
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 
@@ -1236,7 +1236,7 @@ static QueryDesc *
 ExecParallelGetQueryDesc(shm_toc *toc, DestReceiver *receiver,
 						 int instrument_options)
 {
-	char	   *pstmtspace;
+	NodeTree	pstmtspace;
 	char	   *paramspace;
 	PlannedStmt *pstmt;
 	ParamListInfo paramLI;
@@ -1247,7 +1247,7 @@ ExecParallelGetQueryDesc(shm_toc *toc, DestReceiver *receiver,
 
 	/* Reconstruct leader-supplied PlannedStmt. */
 	pstmtspace = shm_toc_lookup(toc, PARALLEL_KEY_PLANNEDSTMT, false);
-	pstmt = (PlannedStmt *) stringToNode(pstmtspace);
+	pstmt = (PlannedStmt *) nodeTreeToNode(pstmtspace);
 
 	/* Reconstruct ParamListInfo. */
 	paramspace = shm_toc_lookup(toc, PARALLEL_KEY_PARAMLISTINFO, false);

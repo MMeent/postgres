@@ -44,6 +44,7 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#include "nodes/nodeFuncs.h"
 
 static void RangeVarCallbackForPolicy(const RangeVar *rv,
 									  Oid relid, Oid oldrelid, void *arg);
@@ -237,7 +238,6 @@ RelationBuildRowSecurity(Relation relation)
 		RowSecurityPolicy *policy;
 		Datum		datum;
 		bool		isnull;
-		char	   *str_value;
 
 		policy = MemoryContextAllocZero(rscxt, sizeof(RowSecurityPolicy));
 
@@ -272,11 +272,12 @@ RelationBuildRowSecurity(Relation relation)
 							 RelationGetDescr(catalog), &isnull);
 		if (!isnull)
 		{
-			str_value = TextDatumGetCString(datum);
+			NodeTree copy = pg_detoast_datum((NodeTree) DatumGetPointer(datum));
 			MemoryContextSwitchTo(rscxt);
-			policy->qual = (Expr *) stringToNode(str_value);
+			policy->qual = (Expr *) nodeTreeToNode(copy);
 			MemoryContextSwitchTo(oldcxt);
-			pfree(str_value);
+			if (copy != (NodeTree) DatumGetPointer(datum))
+				pfree(copy);
 		}
 		else
 			policy->qual = NULL;
@@ -286,11 +287,12 @@ RelationBuildRowSecurity(Relation relation)
 							 RelationGetDescr(catalog), &isnull);
 		if (!isnull)
 		{
-			str_value = TextDatumGetCString(datum);
+			NodeTree copy = pg_detoast_datum((NodeTree) DatumGetPointer(datum));
 			MemoryContextSwitchTo(rscxt);
-			policy->with_check_qual = (Expr *) stringToNode(str_value);
+			policy->with_check_qual = (Expr *) nodeTreeToNode(copy);
 			MemoryContextSwitchTo(oldcxt);
-			pfree(str_value);
+			if (copy != (NodeTree) DatumGetPointer(datum))
+				pfree(copy);
 		}
 		else
 			policy->with_check_qual = NULL;
@@ -698,13 +700,15 @@ CreatePolicy(CreatePolicyStmt *stmt)
 
 	/* Add qual if present. */
 	if (qual)
-		values[Anum_pg_policy_polqual - 1] = CStringGetTextDatum(nodeToString(qual));
+		values[Anum_pg_policy_polqual - 1] =
+			PointerGetDatum(nodeToNodeTree(qual));
 	else
 		isnull[Anum_pg_policy_polqual - 1] = true;
 
 	/* Add WITH CHECK qual if present */
 	if (with_check_qual)
-		values[Anum_pg_policy_polwithcheck - 1] = CStringGetTextDatum(nodeToString(with_check_qual));
+		values[Anum_pg_policy_polwithcheck - 1]
+			= PointerGetDatum(nodeToNodeTree(with_check_qual));
 	else
 		isnull[Anum_pg_policy_polwithcheck - 1] = true;
 
@@ -955,7 +959,7 @@ AlterPolicy(AlterPolicyStmt *stmt)
 	{
 		replaces[Anum_pg_policy_polqual - 1] = true;
 		values[Anum_pg_policy_polqual - 1]
-			= CStringGetTextDatum(nodeToString(qual));
+			= PointerGetDatum(nodeToNodeTree(qual));
 	}
 	else
 	{
@@ -974,14 +978,12 @@ AlterPolicy(AlterPolicyStmt *stmt)
 								   &attr_isnull);
 		if (!attr_isnull)
 		{
-			char	   *qual_value;
 			ParseState *qual_pstate;
 
 			/* parsestate is built just to build the range table */
 			qual_pstate = make_parsestate(NULL);
 
-			qual_value = TextDatumGetCString(value_datum);
-			qual = stringToNode(qual_value);
+			qual = nodeTreeToNode((NodeTree) DatumGetPointer(value_datum));
 
 			/* Add this rel to the parsestate's rangetable, for dependencies */
 			(void) addRangeTableEntryForRelation(qual_pstate, target_table,
@@ -997,7 +999,7 @@ AlterPolicy(AlterPolicyStmt *stmt)
 	{
 		replaces[Anum_pg_policy_polwithcheck - 1] = true;
 		values[Anum_pg_policy_polwithcheck - 1]
-			= CStringGetTextDatum(nodeToString(with_check_qual));
+			= PointerGetDatum(nodeToNodeTree(with_check_qual));
 	}
 	else
 	{
@@ -1016,14 +1018,12 @@ AlterPolicy(AlterPolicyStmt *stmt)
 								   &attr_isnull);
 		if (!attr_isnull)
 		{
-			char	   *with_check_value;
 			ParseState *with_check_pstate;
 
 			/* parsestate is built just to build the range table */
 			with_check_pstate = make_parsestate(NULL);
 
-			with_check_value = TextDatumGetCString(value_datum);
-			with_check_qual = stringToNode(with_check_value);
+			with_check_qual = nodeTreeToNode((NodeTree) DatumGetPointer(value_datum));
 
 			/* Add this rel to the parsestate's rangetable, for dependencies */
 			(void) addRangeTableEntryForRelation(with_check_pstate,

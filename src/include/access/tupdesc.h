@@ -22,13 +22,13 @@
 typedef struct AttrDefault
 {
 	AttrNumber	adnum;
-	char	   *adbin;			/* nodeToString representation of expr */
+	NodeTree	adbin;			/* nodeToNodeTree representation of expr */
 } AttrDefault;
 
 typedef struct ConstrCheck
 {
 	char	   *ccname;
-	char	   *ccbin;			/* nodeToString representation of expr */
+	NodeTree	ccbin;			/* nodeToNodeTree representation of expr */
 	bool		ccvalid;
 	bool		ccnoinherit;	/* this is a non-inheritable constraint */
 } ConstrCheck;

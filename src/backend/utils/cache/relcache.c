@@ -790,7 +790,7 @@ RelationBuildRuleLock(Relation relation)
 		Form_pg_rewrite rewrite_form = (Form_pg_rewrite) GETSTRUCT(rewrite_tuple);
 		bool		isnull;
 		Datum		rule_datum;
-		char	   *rule_str;
+		NodeTree	rule_tree;
 		RewriteRule *rule;
 		Oid			check_as_user;
 
@@ -814,22 +814,24 @@ RelationBuildRuleLock(Relation relation)
 								  rewrite_tupdesc,
 								  &isnull);
 		Assert(!isnull);
-		rule_str = TextDatumGetCString(rule_datum);
+		rule_tree = pg_detoast_datum((NodeTree) DatumGetPointer(rule_datum));
 		oldcxt = MemoryContextSwitchTo(rulescxt);
-		rule->actions = (List *) stringToNode(rule_str);
+		rule->actions = (List *) nodeTreeToNode(rule_tree);
 		MemoryContextSwitchTo(oldcxt);
-		pfree(rule_str);
+		if (rule_tree != (NodeTree) DatumGetPointer(rule_datum))
+			pfree(rule_tree);
 
 		rule_datum = heap_getattr(rewrite_tuple,
 								  Anum_pg_rewrite_ev_qual,
 								  rewrite_tupdesc,
 								  &isnull);
 		Assert(!isnull);
-		rule_str = TextDatumGetCString(rule_datum);
+		rule_tree = pg_detoast_datum((NodeTree) DatumGetPointer(rule_datum));
 		oldcxt = MemoryContextSwitchTo(rulescxt);
-		rule->qual = (Node *) stringToNode(rule_str);
+		rule->qual = (Node *) nodeTreeToNode(rule_tree);
 		MemoryContextSwitchTo(oldcxt);
-		pfree(rule_str);
+		if (rule_tree != (NodeTree) DatumGetPointer(rule_datum))
+			pfree(rule_tree);
 
 		/*
 		 * If this is a SELECT rule defining a view, and the view has
@@ -4487,12 +4489,14 @@ AttrDefaultFetch(Relation relation, int ndef)
 				 adform->adnum, RelationGetRelationName(relation));
 		else
 		{
-			/* detoast and convert to cstring in caller's context */
-			char	   *s = TextDatumGetCString(val);
+			/* prepare cache context for detoasting the nodeTree */
+			MemoryContext old = MemoryContextSwitchTo(CacheMemoryContext);
 
 			attrdef[found].adnum = adform->adnum;
-			attrdef[found].adbin = MemoryContextStrdup(CacheMemoryContext, s);
-			pfree(s);
+			attrdef[found].adbin = pg_detoast_datum_copy((struct varlena *) DatumGetPointer(val));
+			/* return to normal context */
+			MemoryContextSwitchTo(old);
+
 			found++;
 		}
 	}
@@ -4593,11 +4597,10 @@ CheckConstraintFetch(Relation relation)
 				 RelationGetRelationName(relation));
 		else
 		{
-			/* detoast and convert to cstring in caller's context */
-			char	   *s = TextDatumGetCString(val);
+			MemoryContext	old = MemoryContextSwitchTo(CacheMemoryContext);
+			check[found].ccbin = pg_detoast_datum_copy((NodeTree) DatumGetPointer(val));
+			MemoryContextSwitchTo(old);
 
-			check[found].ccbin = MemoryContextStrdup(CacheMemoryContext, s);
-			pfree(s);
 			found++;
 		}
 	}
@@ -4999,7 +5002,6 @@ RelationGetIndexExpressions(Relation relation)
 	List	   *result;
 	Datum		exprsDatum;
 	bool		isnull;
-	char	   *exprsString;
 	MemoryContext oldcxt;
 
 	/* Quick exit if we already computed the result. */
@@ -5021,9 +5023,7 @@ RelationGetIndexExpressions(Relation relation)
 							  GetPgIndexDescriptor(),
 							  &isnull);
 	Assert(!isnull);
-	exprsString = TextDatumGetCString(exprsDatum);
-	result = (List *) stringToNode(exprsString);
-	pfree(exprsString);
+	result = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(exprsDatum));
 
 	/*
 	 * Run the expressions through eval_const_expressions. This is not just an
@@ -5058,7 +5058,6 @@ RelationGetDummyIndexExpressions(Relation relation)
 	List	   *result;
 	Datum		exprsDatum;
 	bool		isnull;
-	char	   *exprsString;
 	List	   *rawExprs;
 	ListCell   *lc;
 
@@ -5073,9 +5072,7 @@ RelationGetDummyIndexExpressions(Relation relation)
 							  GetPgIndexDescriptor(),
 							  &isnull);
 	Assert(!isnull);
-	exprsString = TextDatumGetCString(exprsDatum);
-	rawExprs = (List *) stringToNode(exprsString);
-	pfree(exprsString);
+	rawExprs = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(exprsDatum));
 
 	/* Construct null Consts; the typlen and typbyval are arbitrary. */
 	result = NIL;
@@ -5112,7 +5109,6 @@ RelationGetIndexPredicate(Relation relation)
 	List	   *result;
 	Datum		predDatum;
 	bool		isnull;
-	char	   *predString;
 	MemoryContext oldcxt;
 
 	/* Quick exit if we already computed the result. */
@@ -5134,9 +5130,7 @@ RelationGetIndexPredicate(Relation relation)
 							 GetPgIndexDescriptor(),
 							 &isnull);
 	Assert(!isnull);
-	predString = TextDatumGetCString(predDatum);
-	result = (List *) stringToNode(predString);
-	pfree(predString);
+	result = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(predDatum));
 
 	/*
 	 * Run the expression through const-simplification and canonicalization.
@@ -5301,14 +5295,14 @@ restart:
 		datum = heap_getattr(indexDesc->rd_indextuple, Anum_pg_index_indexprs,
 							 GetPgIndexDescriptor(), &isnull);
 		if (!isnull)
-			indexExpressions = stringToNode(TextDatumGetCString(datum));
+			indexExpressions = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 		else
 			indexExpressions = NULL;
 
 		datum = heap_getattr(indexDesc->rd_indextuple, Anum_pg_index_indpred,
 							 GetPgIndexDescriptor(), &isnull);
 		if (!isnull)
-			indexPredicate = stringToNode(TextDatumGetCString(datum));
+			indexPredicate = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 		else
 			indexPredicate = NULL;
 

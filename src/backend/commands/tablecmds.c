@@ -2816,7 +2816,7 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
 					continue;
 
 				/* Adjust Vars to match new table's column numbering */
-				expr = map_variable_attnos(stringToNode(check[i].ccbin),
+				expr = map_variable_attnos(nodeTreeToNode(check[i].ccbin),
 										   1, 0,
 										   newattmap,
 										   InvalidOid, &found_whole_row);
@@ -15869,10 +15869,19 @@ MergeConstraintsIntoExisting(Relation child_rel, Relation parent_rel)
 				continue;
 
 			if (!constraints_equivalent(parent_tuple, child_tuple, RelationGetDescr(constraintrel)))
+			{
+				if (strcmp(RelationGetRelationName(child_rel), "sales_feb2022") == 0)
+					elog(PANIC, "some error or another");
+
 				ereport(ERROR,
 						(errcode(ERRCODE_DATATYPE_MISMATCH),
 						 errmsg("child table \"%s\" has different definition for check constraint \"%s\"",
 								RelationGetRelationName(child_rel), NameStr(parent_con->conname))));
+			}
+			if (ItemPointerGetBlockNumber(&child_tuple->t_self) == InvalidBlockNumber)
+				elog(PANIC, "some other error");
+			if (ItemPointerGetBlockNumber(&parent_tuple->t_self) == InvalidBlockNumber)
+				elog(PANIC, "some other error");
 
 			/* If the child constraint is "no inherit" then cannot merge */
 			if (child_con->connoinherit)
@@ -18168,7 +18177,7 @@ ConstraintImpliedByRelConstraint(Relation scanrel, List *testConstraint, List *p
 		if (!constr->check[i].ccvalid)
 			continue;
 
-		cexpr = stringToNode(constr->check[i].ccbin);
+		cexpr = nodeTreeToNode(constr->check[i].ccbin);
 
 		/*
 		 * Run each expression through const-simplification and
@@ -19419,7 +19428,7 @@ DetachAddConstraintIfNeeded(List **wqueue, Relation partRel)
 		n->location = -1;
 		n->is_no_inherit = false;
 		n->raw_expr = NULL;
-		n->cooked_expr = nodeToString(make_ands_explicit(constraintExpr));
+		n->cooked_expr = nodeToNodeTree(make_ands_explicit(constraintExpr));
 		n->initially_valid = true;
 		n->skip_validation = true;
 		/* It's a re-add, since it nominally already exists */

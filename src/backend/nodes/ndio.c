@@ -764,7 +764,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_node = T_Const,
 		.nfd_type = (NFT_CHAR | NFT_ARRAYTYPE),
 		.nfd_namelen = sizeof("constvalue") - 1,
-		.nfd_field_no = 8, /* start counting after original fields */
+		.nfd_field_no = 9, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arrlen_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
@@ -777,7 +777,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_node = T_Const,
 		.nfd_type = NFT_CSTRING,
 		.nfd_namelen = sizeof("constvalue") - 1,
-		.nfd_field_no = 8, /* start counting after original fields */
+		.nfd_field_no = 9, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arrlen_off = 0,
@@ -789,6 +789,7 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 				   uint32 flags)
 {
 	const Const *constNode = castNode(Const, node);
+	NodeDescData descData;
 	NodeDesc	desc = GetNodeDesc(T_Const);
 	NodeFieldDesc fdesc;
 	WriteTypedField fwriter;
@@ -807,6 +808,8 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 
 	if (!constNode->constisnull)
 	{
+		descData = *desc;
+
 		if (constNode->constlen > 0)
 		{
 			ConstIoTool local;
@@ -853,16 +856,20 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 			fwriter = writer->nw_fld_writers[fdesc->nfd_type];
 			fwriter(into, fdesc, (void *) &constNode->constvalue, flags);
 		}
+
+		descData.nd_fields = fdesc->nfd_field_no + 1;
+		desc = &descData;
 	}
 
 	/* all fields serialized but */
-	return writer->nw_finish_node(into, desc, -1, flags);
+	return writer->nw_finish_node(into, desc, last_written_field, flags);
 }
 
 Node *
 ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 {
 	Const		   *node = makeNode(Const);
+	NodeDescData	descData;
 	NodeDesc		desc = GetNodeDesc(T_Const);
 	NodeFieldDesc	fdesc;
 	ReadTypedField	freader;
@@ -879,6 +886,8 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 
 	if (!node->constisnull)
 	{
+		descData = *desc;
+
 		if (node->constlen > 0)
 		{
 			ConstIoTool local;
@@ -900,8 +909,9 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 				};
 			}
 
-			ReadArrayField(from, reader, fdesc, &local.payload,
-						   flags | ND_READ_ARRAY_PREALLOCATED);
+			if (ReadArrayField(from, reader, fdesc, &local.payload,
+							   flags | ND_READ_ARRAY_PREALLOCATED))
+				last_read = fdesc->nfd_field_no;
 		}
 		else if (node->constlen == -1) /* TOAST */
 		{
@@ -918,19 +928,23 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 			SET_VARSIZE(data, local.len + 4);
 
 			fdesc = &constIoTooling[1];
-			ReadArrayField(from, reader, fdesc, &local.payload,
-						   flags | ND_READ_ARRAY_PREALLOCATED);
+			if (ReadArrayField(from, reader, fdesc, &local.payload,
+				flags | ND_READ_ARRAY_PREALLOCATED))
+				last_read = fdesc->nfd_field_no;
 		}
 		else if (node->constlen == -2) /* cstring */
 		{
 			fdesc = &constIoTooling[2];
 
 			freader = reader->nr_fld_readers[fdesc->nfd_type];
-			freader(from, fdesc, (void *) &node->constvalue, flags);
+			if (freader(from, fdesc, (void *) &node->constvalue, flags))
+				last_read = fdesc->nfd_field_no;
 		}
+		descData.nd_fields = fdesc->nfd_field_no + 1;
+		desc = &descData;
 	}
 
-	reader->nr_finish_node(from, desc, -1, flags);
+	reader->nr_finish_node(from, desc, last_read, flags);
 
 	return (Node *) node;
 }

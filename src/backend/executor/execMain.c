@@ -59,6 +59,7 @@
 #include "utils/partcache.h"
 #include "utils/rls.h"
 #include "utils/snapmgr.h"
+#include "nodes/nodeFuncs.h"
 
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
@@ -1747,7 +1748,7 @@ ExecRelCheck(ResultRelInfo *resultRelInfo,
 		{
 			Expr	   *checkconstr;
 
-			checkconstr = stringToNode(check[i].ccbin);
+			checkconstr = nodeTreeToNode(check[i].ccbin);
 			resultRelInfo->ri_ConstraintExprs[i] =
 				ExecPrepareExpr(checkconstr, estate);
 		}

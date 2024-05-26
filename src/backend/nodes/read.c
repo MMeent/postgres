@@ -22,10 +22,13 @@
 #include <ctype.h>
 
 #include "common/string.h"
+#include "fmgr.h"
 #include "nodes/bitmapset.h"
+#include "nodes/nodeFuncs.h"
 #include "nodes/pg_list.h"
 #include "nodes/readfuncs.h"
 #include "nodes/value.h"
+#include "varatt.h"
 
 
 /* Static state for pg_strtok */
@@ -81,6 +84,45 @@ stringToNodeInternal(const char *str, bool restore_loc_fields)
 #endif
 
 	return retval;
+}
+
+/*
+ * Deserialize a nodeTree back to Nodes.
+ *
+ * Detoasting is applied where appropriate, and temporary allocations
+ * are cleaned up again after use.
+ */
+void *
+nodeTreeToNode(NodeTree src)
+{
+	NodeTree	detoasted;
+	void	   *result;
+
+	if (src == NULL)
+		return NULL;
+
+	detoasted = (NodeTree) pg_detoast_datum((struct varlena *) src);
+	result = stringToNodeInternal(VARDATA(detoasted), false);
+
+	if (detoasted != src)
+		pfree(detoasted);
+
+	return result;
+}
+
+void *
+nodeTreeToNodeWithLocations(NodeTree src)
+{
+	NodeTree	detoasted;
+	void	   *result;
+
+	detoasted = (NodeTree) pg_detoast_datum((struct varlena *) src);
+	result = stringToNodeInternal(VARDATA(detoasted), true);
+
+	if (detoasted != src)
+		pfree(detoasted);
+
+	return result;
 }
 
 /*
@@ -470,7 +512,7 @@ nodeRead(const char *token, int tok_len)
 			}
 			else
 			{
-				elog(ERROR, "unrecognized token: \"%.*s\"", tok_len, token);
+				elog(PANIC, "unrecognized token: \"%.*s\"", tok_len, token);
 				result = NULL;	/* keep compiler happy */
 			}
 			break;

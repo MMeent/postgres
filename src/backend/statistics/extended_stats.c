@@ -487,12 +487,7 @@ fetch_statentries_for_relation(Relation pg_statext, Oid relid)
 
 		if (!isnull)
 		{
-			char	   *exprsString;
-
-			exprsString = TextDatumGetCString(datum);
-			exprs = (List *) stringToNode(exprsString);
-
-			pfree(exprsString);
+			exprs = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(datum));
 
 			/*
 			 * Run the expressions through eval_const_expressions. This is not

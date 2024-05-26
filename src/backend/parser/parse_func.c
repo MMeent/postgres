@@ -1633,7 +1633,6 @@ func_get_detail(List *funcname,
 		if (argdefaults && best_candidate->ndargs > 0)
 		{
 			Datum		proargdefaults;
-			char	   *str;
 			List	   *defaults;
 
 			/* shouldn't happen, FuncnameGetCandidates messed up */
@@ -1642,9 +1641,7 @@ func_get_detail(List *funcname,
 
 			proargdefaults = SysCacheGetAttrNotNull(PROCOID, ftup,
 													Anum_pg_proc_proargdefaults);
-			str = TextDatumGetCString(proargdefaults);
-			defaults = castNode(List, stringToNode(str));
-			pfree(str);
+			defaults = castNode(List, nodeTreeToNode((NodeTree) DatumGetPointer(proargdefaults)));
 
 			/* Delete any unused defaults from the returned list */
 			if (best_candidate->argnumbers != NULL)

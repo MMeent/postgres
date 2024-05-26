@@ -57,6 +57,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tuplestore.h"
+#include "nodes/nodeFuncs.h"
 
 
 /* GUC variables */
@@ -183,7 +184,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	int16	   *columns;
 	int2vector *tgattr;
 	List	   *whenRtable;
-	char	   *qual;
+	NodeTree	qual;
 	Datum		values[Natts_pg_trigger];
 	bool		nulls[Natts_pg_trigger];
 	Relation	rel;
@@ -667,7 +668,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 		/* we'll need the rtable for recordDependencyOnExpr */
 		whenRtable = pstate->p_rtable;
 
-		qual = nodeToString(whenClause);
+		qual = nodeToNodeTree(whenClause);
 
 		free_parsestate(pstate);
 	}
@@ -679,7 +680,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	}
 	else
 	{
-		qual = nodeToString(whenClause);
+		qual = nodeToNodeTree(whenClause);
 		whenRtable = NIL;
 	}
 
@@ -960,7 +961,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 
 	/* set tgqual if trigger has WHEN clause */
 	if (qual)
-		values[Anum_pg_trigger_tgqual - 1] = CStringGetTextDatum(qual);
+		values[Anum_pg_trigger_tgqual - 1] = PointerGetDatum(qual);
 	else
 		nulls[Anum_pg_trigger_tgqual - 1] = true;
 
@@ -1967,7 +1968,7 @@ RelationBuildTriggers(Relation relation)
 		datum = fastgetattr(htup, Anum_pg_trigger_tgqual,
 							tgrel->rd_att, &isnull);
 		if (!isnull)
-			build->tgqual = TextDatumGetCString(datum);
+			build->tgqual = pg_detoast_datum_copy((NodeTree) DatumGetPointer(datum));
 		else
 			build->tgqual = NULL;
 
@@ -2121,7 +2122,7 @@ CopyTriggerDesc(TriggerDesc *trigdesc)
 			trigger->tgargs = newargs;
 		}
 		if (trigger->tgqual)
-			trigger->tgqual = pstrdup(trigger->tgqual);
+			trigger->tgqual = pg_detoast_datum_copy(trigger->tgqual);
 		if (trigger->tgoldtable)
 			trigger->tgoldtable = pstrdup(trigger->tgoldtable);
 		if (trigger->tgnewtable)
@@ -3487,7 +3488,7 @@ TriggerEnabled(EState *estate, ResultRelInfo *relinfo,
 			Node	   *tgqual;
 
 			oldContext = MemoryContextSwitchTo(estate->es_query_cxt);
-			tgqual = stringToNode(trigger->tgqual);
+			tgqual = nodeTreeToNode(trigger->tgqual);
 			/* Change references to OLD and NEW to INNER_VAR and OUTER_VAR */
 			ChangeVarNodes(tgqual, PRS2_OLD_VARNO, INNER_VAR, 0);
 			ChangeVarNodes(tgqual, PRS2_NEW_VARNO, OUTER_VAR, 0);

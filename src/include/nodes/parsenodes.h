@@ -2741,8 +2741,8 @@ typedef struct Constraint
 	bool		is_no_inherit;	/* is constraint non-inheritable? */
 	Node	   *raw_expr;		/* CHECK or DEFAULT expression, as
 								 * untransformed parse tree */
-	char	   *cooked_expr;	/* CHECK or DEFAULT expression, as
-								 * nodeToString representation */
+	NodeTree	cooked_expr;	/* CHECK or DEFAULT expression, as
+								 * nodeToNodeTree representation */
 	char		generated_when; /* ALWAYS or BY DEFAULT */
 	int			inhcount;		/* initial inheritance count to apply, for
 								 * "raw" NOT NULL constraints */
