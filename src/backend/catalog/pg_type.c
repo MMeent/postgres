@@ -385,7 +385,7 @@ TypeCreate(Oid newTypeOid,
 	 * course.
 	 */
 	if (defaultTypeBin)
-		values[Anum_pg_type_typdefaultbin - 1] = PointerGetDatum(defaultTypeBin);
+		values[Anum_pg_type_typdefaultbin - 1] = NodeTreeGetDatum(defaultTypeBin);
 	else
 		nulls[Anum_pg_type_typdefaultbin - 1] = true;
 
@@ -579,7 +579,7 @@ GenerateTypeDependencies(HeapTuple typeTuple,
 		datum = heap_getattr(typeTuple, Anum_pg_type_typdefaultbin,
 							 RelationGetDescr(typeCatalog), &isNull);
 		if (!isNull)
-			defaultExpr = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+			defaultExpr = nodeTreeToNode(DatumGetNodeTree(datum));
 	}
 	/* Extract typacl if caller didn't pass it */
 	if (typacl == NULL)

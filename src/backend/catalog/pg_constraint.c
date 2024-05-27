@@ -227,7 +227,7 @@ CreateConstraintEntry(const char *constraintName,
 		nulls[Anum_pg_constraint_conexclop - 1] = true;
 
 	if (conBin != NULL)
-		values[Anum_pg_constraint_conbin - 1] = PointerGetDatum(conBin);
+		values[Anum_pg_constraint_conbin - 1] = NodeTreeGetDatum(conBin);
 	else
 		nulls[Anum_pg_constraint_conbin - 1] = true;
 

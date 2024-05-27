@@ -2366,6 +2366,7 @@ AddRelationNewConstraints(Relation rel,
 			}
 			else
 			{
+				Assert(cdef);
 				Assert(cdef->cooked_expr != NULL);
 
 				/*
@@ -2542,7 +2543,7 @@ MergeWithExistingConstraint(Relation rel, const char *ccname, Node *expr,
 			if (isnull)
 				elog(ERROR, "null conbin for rel %s",
 					 RelationGetRelationName(rel));
-			if (equal(expr, nodeTreeToNode((NodeTree) DatumGetPointer(val))))
+			if (equal(expr, nodeTreeToNode(DatumGetNodeTree(val))))
 				found = true;
 		}
 
@@ -3324,7 +3325,7 @@ StorePartitionKey(Relation rel,
 	int2vector *partattrs_vec;
 	oidvector  *partopclass_vec;
 	oidvector  *partcollation_vec;
-	NodeTree	partexprTree;
+	Datum		partexprDatum;
 	Relation	pg_partitioned_table;
 	HeapTuple	tuple;
 	Datum		values[Natts_pg_partitioned_table];
@@ -3343,15 +3344,15 @@ StorePartitionKey(Relation rel,
 	/* Convert the expressions (if any) to a text datum */
 	if (partexprs)
 	{
-		partexprTree = nodeToNodeTree(partexprs);
+		partexprDatum = NodeTreeGetDatum(nodeToNodeTree(partexprs));
 	}
 	else
-		partexprTree = NULL;
+		partexprDatum = (Datum) 0;
 
 	pg_partitioned_table = table_open(PartitionedRelationId, RowExclusiveLock);
 
 	/* Only this can ever be NULL */
-	if (!partexprTree)
+	if (!partexprDatum)
 		nulls[Anum_pg_partitioned_table_partexprs - 1] = true;
 
 	values[Anum_pg_partitioned_table_partrelid - 1] = ObjectIdGetDatum(RelationGetRelid(rel));
@@ -3361,7 +3362,7 @@ StorePartitionKey(Relation rel,
 	values[Anum_pg_partitioned_table_partattrs - 1] = PointerGetDatum(partattrs_vec);
 	values[Anum_pg_partitioned_table_partclass - 1] = PointerGetDatum(partopclass_vec);
 	values[Anum_pg_partitioned_table_partcollation - 1] = PointerGetDatum(partcollation_vec);
-	values[Anum_pg_partitioned_table_partexprs - 1] = PointerGetDatum(partexprTree);
+	values[Anum_pg_partitioned_table_partexprs - 1] = partexprDatum;
 
 	tuple = heap_form_tuple(RelationGetDescr(pg_partitioned_table), values, nulls);
 
@@ -3500,7 +3501,7 @@ StorePartitionBound(Relation rel, Relation parent, PartitionBoundSpec *bound)
 	memset(new_null, false, sizeof(new_null));
 	memset(new_repl, false, sizeof(new_repl));
 	new_val[Anum_pg_class_relpartbound - 1] =
-		PointerGetDatum(nodeToNodeTree(bound));
+		NodeTreeGetDatum(nodeToNodeTree(bound));
 	new_null[Anum_pg_class_relpartbound - 1] = false;
 	new_repl[Anum_pg_class_relpartbound - 1] = true;
 	newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),

@@ -419,7 +419,7 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 	/* Add qualifications, if available */
 	if (pri->whereClause != NULL)
 		values[Anum_pg_publication_rel_prqual - 1]
-			= PointerGetDatum(nodeToNodeTree(pri->whereClause));
+			= NodeTreeGetDatum(nodeToNodeTree(pri->whereClause));
 	else
 		nulls[Anum_pg_publication_rel_prqual - 1] = true;
 

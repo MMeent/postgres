@@ -955,13 +955,13 @@ pgoutput_row_filter_init(PGOutputData *data, List *publications,
 		/* Form the per pubaction row filter lists. */
 		if (pub->pubactions.pubinsert && !no_filter[PUBACTION_INSERT])
 			rfnodes[PUBACTION_INSERT] = lappend(rfnodes[PUBACTION_INSERT],
-												(NodeTree) DatumGetPointer(rfdatum));
+												DatumGetNodeTree(rfdatum));
 		if (pub->pubactions.pubupdate && !no_filter[PUBACTION_UPDATE])
 			rfnodes[PUBACTION_UPDATE] = lappend(rfnodes[PUBACTION_UPDATE],
-												(NodeTree) DatumGetPointer(rfdatum));
+												DatumGetNodeTree(rfdatum));
 		if (pub->pubactions.pubdelete && !no_filter[PUBACTION_DELETE])
 			rfnodes[PUBACTION_DELETE] = lappend(rfnodes[PUBACTION_DELETE],
-												(NodeTree) DatumGetPointer(rfdatum));
+												DatumGetNodeTree(rfdatum));
 
 		ReleaseSysCache(rftuple);
 	}							/* loop all subscribed publications */

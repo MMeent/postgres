@@ -42,6 +42,10 @@
 #define COPY_STRING_FIELD(fldname) \
 	(newnode->fldname = from->fldname ? pstrdup(from->fldname) : (char *) NULL)
 
+/* Copy a varlena field, that may be NULL */
+#define COPY_VARLENA_FIELD(fldname) \
+	(newnode->fldname = from->fldname != (Datum) 0 ? pg_detoast_datum_copy(from->fldname) : (Datum) 0)
+
 /* Copy a field that is an inline array */
 #define COPY_ARRAY_FIELD(fldname) \
 	memcpy(newnode->fldname, from->fldname, sizeof(newnode->fldname))

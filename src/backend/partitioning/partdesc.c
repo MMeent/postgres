@@ -192,7 +192,7 @@ RelationBuildPartitionDesc(Relation rel, bool omit_detached)
 									Anum_pg_class_relpartbound,
 									&isnull);
 			if (!isnull)
-				boundspec = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+				boundspec = nodeTreeToNode(DatumGetNodeTree(datum));
 			ReleaseSysCache(tuple);
 		}
 
@@ -229,7 +229,7 @@ RelationBuildPartitionDesc(Relation rel, bool omit_detached)
 			datum = heap_getattr(tuple, Anum_pg_class_relpartbound,
 								 RelationGetDescr(pg_class), &isnull);
 			if (!isnull)
-				boundspec = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+				boundspec = nodeTreeToNode(DatumGetNodeTree(datum));
 			systable_endscan(scan);
 			table_close(pg_class, AccessShareLock);
 		}

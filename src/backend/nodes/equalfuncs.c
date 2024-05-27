@@ -62,6 +62,16 @@
 #define equalstr(a, b)	\
 	(((a) != NULL && (b) != NULL) ? (strcmp(a, b) == 0) : (a) == (b))
 
+/* Compare a field that is a pointer to a C string, or perhaps NULL */
+#define COMPARE_VARLENA_FIELD(fldname) \
+	do { \
+		if (a->fldname != b->fldname && ( \
+			VARSIZE_ANY_EXHDR(a->fldname) != VARSIZE_ANY_EXHDR(b->fldname) || \
+			strncmp(VARDATA_ANY(a->fldname), VARDATA_ANY(b->fldname), VARSIZE_ANY_EXHDR(a->fldname)) \
+		)) \
+			return false; \
+	} while (0)
+
 /* Compare a field that is an inline array */
 #define COMPARE_ARRAY_FIELD(fldname) \
 	do { \

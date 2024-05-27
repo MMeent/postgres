@@ -1084,7 +1084,7 @@ load_domaintype_info(TypeCacheEntry *typentry)
 					 NameStr(typTup->typname), NameStr(c->conname));
 
 			/* Convert conbin to C string in caller context */
-			constring = pg_detoast_datum_copy((NodeTree) DatumGetPointer(val));
+			constring = DatumGetNodeTree(val);
 
 			/* Create the DomainConstraintCache object and context if needed */
 			if (dcc == NULL)

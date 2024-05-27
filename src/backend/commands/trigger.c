@@ -961,7 +961,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 
 	/* set tgqual if trigger has WHEN clause */
 	if (qual)
-		values[Anum_pg_trigger_tgqual - 1] = PointerGetDatum(qual);
+		values[Anum_pg_trigger_tgqual - 1] = NodeTreeGetDatum(qual);
 	else
 		nulls[Anum_pg_trigger_tgqual - 1] = true;
 
@@ -1968,7 +1968,7 @@ RelationBuildTriggers(Relation relation)
 		datum = fastgetattr(htup, Anum_pg_trigger_tgqual,
 							tgrel->rd_att, &isnull);
 		if (!isnull)
-			build->tgqual = pg_detoast_datum_copy((NodeTree) DatumGetPointer(datum));
+			build->tgqual = DatumGetNodeTree(datum);
 		else
 			build->tgqual = NULL;
 

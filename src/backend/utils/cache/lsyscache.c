@@ -2472,7 +2472,7 @@ get_typdefault(Oid typid)
 	if (!isNull)
 	{
 		/* We have an expression default */
-		expr = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+		expr = nodeTreeToNode(DatumGetNodeTree(datum));
 	}
 	else
 	{

@@ -1498,7 +1498,12 @@ get_relation_statistics(RelOptInfo *rel, Relation relation)
 
 			if (!isnull)
 			{
-				exprs = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+				NodeTree	exprTree;
+
+				exprTree = DatumGetNodeTree(datum);
+				exprs = (List *) nodeTreeToNode(exprTree);
+				if (exprTree != (NodeTree) DatumGetPointer(datum))
+					pfree(exprTree);
 
 				/*
 				 * Run the expressions through eval_const_expressions. This is

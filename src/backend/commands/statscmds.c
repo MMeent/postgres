@@ -471,7 +471,7 @@ CreateStatistics(CreateStatsStmt *stmt)
 
 	/* convert the expressions (if any) to a text datum */
 	if (stxexprs != NIL)
-		exprsDatum = PointerGetDatum(nodeToNodeTree(stxexprs));
+		exprsDatum = NodeTreeGetDatum(nodeToNodeTree(stxexprs));
 	else
 		exprsDatum = (Datum) 0;
 

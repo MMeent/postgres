@@ -97,6 +97,9 @@ extern void text_to_cstring_buffer(const text *src, char *dst, size_t dst_len);
 #define CStringGetTextDatum(s) PointerGetDatum(cstring_to_text(s))
 #define TextDatumGetCString(d) text_to_cstring((text *) DatumGetPointer(d))
 
+#define DatumGetNodeTree(d) pg_detoast_datum_copy((NodeTree) DatumGetPointer(d))
+#define NodeTreeGetDatum(n) PointerGetDatum(n)
+
 /* xid.c */
 extern int	xidComparator(const void *arg1, const void *arg2);
 extern int	xidLogicalComparator(const void *arg1, const void *arg2);

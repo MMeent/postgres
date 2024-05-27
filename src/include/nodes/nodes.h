@@ -176,11 +176,6 @@ castNodeImpl(NodeTag type, void *ptr)
 #define castNode(_type_, nodeptr) ((_type_ *) (nodeptr))
 #endif							/* USE_ASSERT_CHECKING */
 
-/*
- * Serialized form of Node.
- */
-typedef struct varlena *NodeTree;
-
 /* ----------------------------------------------------------------
  *					  extern declarations follow
  * ----------------------------------------------------------------

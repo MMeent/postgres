@@ -272,7 +272,7 @@ RelationBuildRowSecurity(Relation relation)
 							 RelationGetDescr(catalog), &isnull);
 		if (!isnull)
 		{
-			NodeTree copy = pg_detoast_datum((NodeTree) DatumGetPointer(datum));
+			NodeTree copy = DatumGetNodeTree(datum);
 			MemoryContextSwitchTo(rscxt);
 			policy->qual = (Expr *) nodeTreeToNode(copy);
 			MemoryContextSwitchTo(oldcxt);
@@ -287,7 +287,7 @@ RelationBuildRowSecurity(Relation relation)
 							 RelationGetDescr(catalog), &isnull);
 		if (!isnull)
 		{
-			NodeTree copy = pg_detoast_datum((NodeTree) DatumGetPointer(datum));
+			NodeTree copy = DatumGetNodeTree(datum);
 			MemoryContextSwitchTo(rscxt);
 			policy->with_check_qual = (Expr *) nodeTreeToNode(copy);
 			MemoryContextSwitchTo(oldcxt);
@@ -701,14 +701,14 @@ CreatePolicy(CreatePolicyStmt *stmt)
 	/* Add qual if present. */
 	if (qual)
 		values[Anum_pg_policy_polqual - 1] =
-			PointerGetDatum(nodeToNodeTree(qual));
+			NodeTreeGetDatum(nodeToNodeTree(qual));
 	else
 		isnull[Anum_pg_policy_polqual - 1] = true;
 
 	/* Add WITH CHECK qual if present */
 	if (with_check_qual)
 		values[Anum_pg_policy_polwithcheck - 1]
-			= PointerGetDatum(nodeToNodeTree(with_check_qual));
+			= NodeTreeGetDatum(nodeToNodeTree(with_check_qual));
 	else
 		isnull[Anum_pg_policy_polwithcheck - 1] = true;
 
@@ -959,7 +959,7 @@ AlterPolicy(AlterPolicyStmt *stmt)
 	{
 		replaces[Anum_pg_policy_polqual - 1] = true;
 		values[Anum_pg_policy_polqual - 1]
-			= PointerGetDatum(nodeToNodeTree(qual));
+			= NodeTreeGetDatum(nodeToNodeTree(qual));
 	}
 	else
 	{
@@ -983,7 +983,7 @@ AlterPolicy(AlterPolicyStmt *stmt)
 			/* parsestate is built just to build the range table */
 			qual_pstate = make_parsestate(NULL);
 
-			qual = nodeTreeToNode((NodeTree) DatumGetPointer(value_datum));
+			qual = nodeTreeToNode(DatumGetNodeTree(value_datum));
 
 			/* Add this rel to the parsestate's rangetable, for dependencies */
 			(void) addRangeTableEntryForRelation(qual_pstate, target_table,
@@ -999,7 +999,7 @@ AlterPolicy(AlterPolicyStmt *stmt)
 	{
 		replaces[Anum_pg_policy_polwithcheck - 1] = true;
 		values[Anum_pg_policy_polwithcheck - 1]
-			= PointerGetDatum(nodeToNodeTree(with_check_qual));
+			= NodeTreeGetDatum(nodeToNodeTree(with_check_qual));
 	}
 	else
 	{
@@ -1023,7 +1023,7 @@ AlterPolicy(AlterPolicyStmt *stmt)
 			/* parsestate is built just to build the range table */
 			with_check_pstate = make_parsestate(NULL);
 
-			with_check_qual = nodeTreeToNode((NodeTree) DatumGetPointer(value_datum));
+			with_check_qual = nodeTreeToNode(DatumGetNodeTree(value_datum));
 
 			/* Add this rel to the parsestate's rangetable, for dependencies */
 			(void) addRangeTableEntryForRelation(with_check_pstate,

@@ -866,7 +866,8 @@ _equal${n}(const $n *a, const $n *b)
 		}
 		elsif (elem $t, @varlena_types)
 		{
-			# TODO: 
+		    print $cff "\tCOPY_VARLENA_FIELD($f);\n" unless $copy_ignore;
+		    print $eff "\tCOMPARE_VARLENA_FIELD($f);\n" unless $equal_ignore;
 		}
 		elsif ($t eq 'struct CustomPathMethods*'
 			|| $t eq 'struct CustomScanMethods*')

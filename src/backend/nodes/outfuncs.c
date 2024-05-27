@@ -496,7 +496,7 @@ _outExtensibleNode(StringInfo str, const ExtensibleNode *node)
 }
 
 static void
-_outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
+_outRangeTblEntry_OLD(StringInfo str, const RangeTblEntry *node)
 {
 	WRITE_NODE_TYPE("RANGETBLENTRY");
 

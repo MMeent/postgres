@@ -79,8 +79,8 @@ InsertRule(const char *rulname,
 	values[Anum_pg_rewrite_ev_type - 1] = CharGetDatum(evtype + '0');
 	values[Anum_pg_rewrite_ev_enabled - 1] = CharGetDatum(RULE_FIRES_ON_ORIGIN);
 	values[Anum_pg_rewrite_is_instead - 1] = BoolGetDatum(evinstead);
-	values[Anum_pg_rewrite_ev_qual - 1] = PointerGetDatum(evqual);
-	values[Anum_pg_rewrite_ev_action - 1] = PointerGetDatum(actiontree);
+	values[Anum_pg_rewrite_ev_qual - 1] = NodeTreeGetDatum(evqual);
+	values[Anum_pg_rewrite_ev_action - 1] = NodeTreeGetDatum(actiontree);
 
 	/*
 	 * Ready to store new pg_rewrite tuple

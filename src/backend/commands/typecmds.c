@@ -857,7 +857,7 @@ DefineDomain(CreateDomainStmt *stmt)
 	datum = SysCacheGetAttr(TYPEOID, typeTup,
 							Anum_pg_type_typdefaultbin, &isnull);
 	if (!isnull)
-		defaultValueBin = (NodeTree) DatumGetPointer(datum);
+		defaultValueBin = DatumGetNodeTree(datum);
 
 	/*
 	 * Run through constraints manually to avoid the additional processing
@@ -2652,7 +2652,7 @@ AlterDomainDefault(List *names, Node *defaultRaw)
 			 * Form an updated tuple with the new default and write it back.
 			 */
 			new_record[Anum_pg_type_typdefaultbin - 1]
-				= PointerGetDatum(nodeToNodeTree(defaultExpr));
+				= NodeTreeGetDatum(nodeToNodeTree(defaultExpr));
 
 			new_record_repl[Anum_pg_type_typdefaultbin - 1] = true;
 			new_record[Anum_pg_type_typdefault - 1] = CStringGetTextDatum(defaultValue);
@@ -3101,7 +3101,7 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 				 errmsg("constraint \"%s\" of domain \"%s\" is not a check constraint",
 						constrName, TypeNameToString(typename))));
 
-	conbin = (NodeTree) DatumGetPointer(SysCacheGetAttrNotNull(CONSTROID, tuple, Anum_pg_constraint_conbin));
+	conbin = DatumGetNodeTree(SysCacheGetAttrNotNull(CONSTROID, tuple, Anum_pg_constraint_conbin));
 
 	validateDomainCheckConstraint(domainoid, conbin);
 

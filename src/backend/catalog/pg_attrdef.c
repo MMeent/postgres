@@ -69,7 +69,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	values[Anum_pg_attrdef_oid - 1] = ObjectIdGetDatum(attrdefOid);
 	values[Anum_pg_attrdef_adrelid - 1] = RelationGetRelid(rel);
 	values[Anum_pg_attrdef_adnum - 1] = attnum;
-	values[Anum_pg_attrdef_adbin - 1] = PointerGetDatum(nodeToNodeTree(expr));
+	values[Anum_pg_attrdef_adbin - 1] = NodeTreeGetDatum(nodeToNodeTree(expr));
 
 	tuple = heap_form_tuple(adrel->rd_att, values, nulls);
 	CatalogTupleInsert(adrel, tuple);

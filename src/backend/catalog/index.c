@@ -575,8 +575,8 @@ UpdateIndexRelation(Oid indexoid,
 	oidvector  *indcollation;
 	oidvector  *indclass;
 	int2vector *indoption;
-	NodeTree	exprsTree;
-	NodeTree	predTree;
+	Datum		exprsDatum;
+	Datum		predDatum;
 	Datum		values[Natts_pg_index];
 	bool		nulls[Natts_pg_index] = {0};
 	Relation	pg_index;
@@ -598,18 +598,18 @@ UpdateIndexRelation(Oid indexoid,
 	 * Convert the index expressions (if any) to a text datum
 	 */
 	if (indexInfo->ii_Expressions != NIL)
-		exprsTree = nodeToNodeTree(indexInfo->ii_Expressions);
+		exprsDatum = NodeTreeGetDatum(nodeToNodeTree(indexInfo->ii_Expressions));
 	else
-		exprsTree = NULL;
+		exprsDatum = (Datum) 0;
 
 	/*
 	 * Convert the index predicate (if any) to a text datum.  Note we convert
 	 * implicit-AND format to normal explicit-AND for storage.
 	 */
 	if (indexInfo->ii_Predicate != NIL)
-		predTree = nodeToNodeTree(make_ands_explicit(indexInfo->ii_Predicate));
+		predDatum = NodeTreeGetDatum(nodeToNodeTree(make_ands_explicit(indexInfo->ii_Predicate)));
 	else
-		predTree = NULL;
+		predDatum = (Datum) 0;
 
 
 	/*
@@ -639,11 +639,11 @@ UpdateIndexRelation(Oid indexoid,
 	values[Anum_pg_index_indcollation - 1] = PointerGetDatum(indcollation);
 	values[Anum_pg_index_indclass - 1] = PointerGetDatum(indclass);
 	values[Anum_pg_index_indoption - 1] = PointerGetDatum(indoption);
-	values[Anum_pg_index_indexprs - 1] = PointerGetDatum(exprsTree);
-	if (exprsTree == NULL)
+	values[Anum_pg_index_indexprs - 1] = exprsDatum;
+	if (exprsDatum == (Datum) 0)
 		nulls[Anum_pg_index_indexprs - 1] = true;
-	values[Anum_pg_index_indpred - 1] = PointerGetDatum(predTree);
-	if (predTree == NULL)
+	values[Anum_pg_index_indpred - 1] = predDatum;
+	if (predDatum == (Datum) 0)
 		nulls[Anum_pg_index_indpred - 1] = true;
 
 	tuple = heap_form_tuple(RelationGetDescr(pg_index), values, nulls);
@@ -1344,22 +1344,33 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 	if (oldInfo->ii_Expressions != NIL)
 	{
 		Datum		exprDatum;
+		NodeTree	exprTree;
 
 		exprDatum = SysCacheGetAttrNotNull(INDEXRELID, indexTuple,
 										   Anum_pg_index_indexprs);
+		exprTree = DatumGetNodeTree(exprDatum);
+
 		indexExprs =
-			(List *) nodeTreeToNode((NodeTree) DatumGetPointer(exprDatum));
+			(List *) nodeTreeToNode(exprTree);
+
+		if (exprTree != (NodeTree) DatumGetPointer(exprDatum))
+			pfree(exprTree);
 	}
 	if (oldInfo->ii_Predicate != NIL)
 	{
 		Datum		predDatum;
+		NodeTree	predTree;
 
 		predDatum = SysCacheGetAttrNotNull(INDEXRELID, indexTuple,
 										   Anum_pg_index_indpred);
-		indexPreds = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(predDatum));
+		predTree = DatumGetNodeTree(predDatum);
+		indexPreds = (List *) nodeTreeToNode(predTree);
 
 		/* Also convert to implicit-AND format */
 		indexPreds = make_ands_implicit((Expr *) indexPreds);
+
+		if (predTree != (NodeTree) DatumGetPointer(predDatum))
+			pfree(predTree);
 	}
 
 	/*

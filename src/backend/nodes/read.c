@@ -101,6 +101,8 @@ nodeTreeToNode(NodeTree src)
 	if (src == NULL)
 		return NULL;
 
+	Assert(!VARATT_IS_EXTENDED(src));
+
 	detoasted = (NodeTree) pg_detoast_datum((struct varlena *) src);
 	result = stringToNodeInternal(VARDATA(detoasted), false);
 

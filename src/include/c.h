@@ -700,6 +700,7 @@ typedef struct varlena bytea;
 typedef struct varlena text;
 typedef struct varlena BpChar;	/* blank-padded char, ie SQL char(n) */
 typedef struct varlena VarChar; /* var-length char, ie SQL varchar(n) */
+typedef struct varlena *NodeTree; /* binary serialized node */
 
 /*
  * Specialized array types.  These are physically laid out just the same

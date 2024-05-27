@@ -814,7 +814,7 @@ RelationBuildRuleLock(Relation relation)
 								  rewrite_tupdesc,
 								  &isnull);
 		Assert(!isnull);
-		rule_tree = pg_detoast_datum((NodeTree) DatumGetPointer(rule_datum));
+		rule_tree = DatumGetNodeTree(rule_datum);
 		oldcxt = MemoryContextSwitchTo(rulescxt);
 		rule->actions = (List *) nodeTreeToNode(rule_tree);
 		MemoryContextSwitchTo(oldcxt);
@@ -826,7 +826,7 @@ RelationBuildRuleLock(Relation relation)
 								  rewrite_tupdesc,
 								  &isnull);
 		Assert(!isnull);
-		rule_tree = pg_detoast_datum((NodeTree) DatumGetPointer(rule_datum));
+		rule_tree = DatumGetNodeTree(rule_datum);
 		oldcxt = MemoryContextSwitchTo(rulescxt);
 		rule->qual = (Node *) nodeTreeToNode(rule_tree);
 		MemoryContextSwitchTo(oldcxt);
@@ -4489,13 +4489,17 @@ AttrDefaultFetch(Relation relation, int ndef)
 				 adform->adnum, RelationGetRelationName(relation));
 		else
 		{
+			NodeTree	n = DatumGetNodeTree(val);
 			/* prepare cache context for detoasting the nodeTree */
 			MemoryContext old = MemoryContextSwitchTo(CacheMemoryContext);
 
 			attrdef[found].adnum = adform->adnum;
-			attrdef[found].adbin = pg_detoast_datum_copy((struct varlena *) DatumGetPointer(val));
+			attrdef[found].adbin = pg_detoast_datum_copy(n);
 			/* return to normal context */
 			MemoryContextSwitchTo(old);
+
+			if (n != (NodeTree) DatumGetPointer(val))
+				pfree(n);
 
 			found++;
 		}
@@ -4597,9 +4601,13 @@ CheckConstraintFetch(Relation relation)
 				 RelationGetRelationName(relation));
 		else
 		{
+			NodeTree	n = DatumGetNodeTree(val);
 			MemoryContext	old = MemoryContextSwitchTo(CacheMemoryContext);
-			check[found].ccbin = pg_detoast_datum_copy((NodeTree) DatumGetPointer(val));
+			check[found].ccbin = pg_detoast_datum_copy(n);
 			MemoryContextSwitchTo(old);
+
+			if (n != (NodeTree) DatumGetPointer(val))
+				pfree(n);
 
 			found++;
 		}
@@ -5002,6 +5010,7 @@ RelationGetIndexExpressions(Relation relation)
 	List	   *result;
 	Datum		exprsDatum;
 	bool		isnull;
+	NodeTree	exprsTree;
 	MemoryContext oldcxt;
 
 	/* Quick exit if we already computed the result. */
@@ -5023,7 +5032,10 @@ RelationGetIndexExpressions(Relation relation)
 							  GetPgIndexDescriptor(),
 							  &isnull);
 	Assert(!isnull);
-	result = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(exprsDatum));
+	exprsTree = DatumGetNodeTree(exprsDatum);
+	result = (List *) nodeTreeToNode(exprsTree);
+	if (exprsTree != (NodeTree) DatumGetPointer(exprsDatum))
+		pfree(exprsTree);
 
 	/*
 	 * Run the expressions through eval_const_expressions. This is not just an
@@ -5058,6 +5070,7 @@ RelationGetDummyIndexExpressions(Relation relation)
 	List	   *result;
 	Datum		exprsDatum;
 	bool		isnull;
+	NodeTree	exprsTree;
 	List	   *rawExprs;
 	ListCell   *lc;
 
@@ -5072,7 +5085,10 @@ RelationGetDummyIndexExpressions(Relation relation)
 							  GetPgIndexDescriptor(),
 							  &isnull);
 	Assert(!isnull);
-	rawExprs = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(exprsDatum));
+	exprsTree = DatumGetNodeTree(exprsDatum);
+	rawExprs = (List *) nodeTreeToNode(exprsTree);
+	if (exprsTree != (NodeTree) DatumGetPointer(exprsDatum))
+		pfree(exprsTree);
 
 	/* Construct null Consts; the typlen and typbyval are arbitrary. */
 	result = NIL;
@@ -5109,6 +5125,7 @@ RelationGetIndexPredicate(Relation relation)
 	List	   *result;
 	Datum		predDatum;
 	bool		isnull;
+	NodeTree	predTree;
 	MemoryContext oldcxt;
 
 	/* Quick exit if we already computed the result. */
@@ -5130,7 +5147,10 @@ RelationGetIndexPredicate(Relation relation)
 							 GetPgIndexDescriptor(),
 							 &isnull);
 	Assert(!isnull);
-	result = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(predDatum));
+	predTree = DatumGetNodeTree(predDatum);
+	result = (List *) nodeTreeToNode(predTree);
+	if (predTree != (NodeTree) DatumGetPointer(predDatum))
+		pfree(predTree);
 
 	/*
 	 * Run the expression through const-simplification and canonicalization.
@@ -5295,14 +5315,14 @@ restart:
 		datum = heap_getattr(indexDesc->rd_indextuple, Anum_pg_index_indexprs,
 							 GetPgIndexDescriptor(), &isnull);
 		if (!isnull)
-			indexExpressions = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+			indexExpressions = nodeTreeToNode(DatumGetNodeTree(datum));
 		else
 			indexExpressions = NULL;
 
 		datum = heap_getattr(indexDesc->rd_indextuple, Anum_pg_index_indpred,
 							 GetPgIndexDescriptor(), &isnull);
 		if (!isnull)
-			indexPredicate = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+			indexPredicate = nodeTreeToNode(DatumGetNodeTree(datum));
 		else
 			indexPredicate = NULL;
 

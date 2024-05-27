@@ -1633,6 +1633,7 @@ func_get_detail(List *funcname,
 		if (argdefaults && best_candidate->ndargs > 0)
 		{
 			Datum		proargdefaults;
+			NodeTree	bin;
 			List	   *defaults;
 
 			/* shouldn't happen, FuncnameGetCandidates messed up */
@@ -1641,7 +1642,10 @@ func_get_detail(List *funcname,
 
 			proargdefaults = SysCacheGetAttrNotNull(PROCOID, ftup,
 													Anum_pg_proc_proargdefaults);
-			defaults = castNode(List, nodeTreeToNode((NodeTree) DatumGetPointer(proargdefaults)));
+			bin = DatumGetNodeTree(proargdefaults);
+			defaults = castNode(List, nodeTreeToNode(bin));
+			if (bin != (NodeTree) DatumGetPointer(proargdefaults))
+				pfree(bin);
 
 			/* Delete any unused defaults from the returned list */
 			if (best_candidate->argnumbers != NULL)

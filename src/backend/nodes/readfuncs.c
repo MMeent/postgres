@@ -344,7 +344,7 @@ _readA_Const(void)
 }
 
 static RangeTblEntry *
-_readRangeTblEntry(void)
+_readRangeTblEntry_OLD(void)
 {
 	READ_LOCALS(RangeTblEntry);
 

@@ -1655,9 +1655,7 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 	datum = SysCacheGetAttr(INDEXRELID, ht_idx,
 							Anum_pg_index_indexprs, &isnull);
 	if (!isnull)
-	{
-		indexprs = nodeTreeToNode((NodeTree) DatumGetPointer(datum));
-	}
+		indexprs = nodeTreeToNode(DatumGetNodeTree(datum));
 	else
 		indexprs = NIL;
 
@@ -1802,7 +1800,7 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 		bool		found_whole_row;
 
 		/* Convert text string to node tree */
-		pred_tree = (Node *) nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+		pred_tree = (Node *) nodeTreeToNode(DatumGetNodeTree(datum));
 
 		/* Adjust Vars to match new table's column numbering */
 		pred_tree = map_variable_attnos(pred_tree,
@@ -1911,8 +1909,10 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 	{
 		ListCell   *lc;
 		List	   *exprs = NIL;
+		NodeTree	exprTree;
 
-		exprs = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+		exprTree = DatumGetNodeTree(datum);
+		exprs = (List *) nodeTreeToNode(exprTree);
 
 		foreach(lc, exprs)
 		{
@@ -1923,6 +1923,9 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 
 			def_names = lappend(def_names, selem);
 		}
+
+		if (exprTree != (NodeTree) DatumGetPointer(datum))
+			pfree(exprTree);
 	}
 
 	/* finally, build the output node */

@@ -487,7 +487,13 @@ fetch_statentries_for_relation(Relation pg_statext, Oid relid)
 
 		if (!isnull)
 		{
-			exprs = (List *) nodeTreeToNode((NodeTree) DatumGetPointer(datum));
+			NodeTree	exprsTree;
+
+			exprsTree = DatumGetNodeTree(datum);
+			exprs = (List *) nodeTreeToNode(exprsTree);
+
+			if (exprsTree != (NodeTree) DatumGetPointer(datum))
+				pfree(exprsTree);
 
 			/*
 			 * Run the expressions through eval_const_expressions. This is not

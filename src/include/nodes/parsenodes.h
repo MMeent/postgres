@@ -1039,8 +1039,6 @@ typedef enum RTEKind
 
 typedef struct RangeTblEntry
 {
-	pg_node_attr(custom_read_write)
-
 	NodeTag		type;
 
 	/*
