@@ -748,24 +748,29 @@ typedef struct ConstIoTool {
 	const void *payload;
 } ConstIoTool;
 
+/*---
+ * There are 3 different ways of serializing the field:
+ *		1. as byte[], with length indicated by max(typsize, sizeof(datum))
+ *		2. as varlena, using NFT_VARLENA encoding
+ *		3. as cstring, using NFT_CSTRING encoding
+ */
 static const NodeFieldDescData constIoTooling[] = {
-	{
-		/* */
-		.nfd_name = "varlen_hdr",
-		.nfd_node = T_Const,
-		.nfd_type = NFT_INT,
-		.nfd_namelen = sizeof("varlen_hdr") - 1,
-		.nfd_field_no = 8, /* start counting after original fields */
-		.nfd_offset = 0,
-		.nfd_flags = 0,
-		.nfd_arrlen_off = 0,
-	},
 	{
 		.nfd_name = "constvalue",
 		.nfd_node = T_Const,
 		.nfd_type = (NFT_CHAR | NFT_ARRAYTYPE),
 		.nfd_namelen = sizeof("constvalue") - 1,
-		.nfd_field_no = 9, /* start counting after original fields */
+		.nfd_field_no = 8, /* start counting after original fields */
+		.nfd_offset = 0,
+		.nfd_flags = 0,
+		.nfd_arrlen_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
+	},
+	{
+		.nfd_name = "constvalue",
+		.nfd_node = T_Const,
+		.nfd_type = NFT_VARLENA,
+		.nfd_namelen = sizeof("constvalue") - 1,
+		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arrlen_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
@@ -778,7 +783,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_node = T_Const,
 		.nfd_type = NFT_CSTRING,
 		.nfd_namelen = sizeof("constvalue") - 1,
-		.nfd_field_no = 9, /* start counting after original fields */
+		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
 		.nfd_arrlen_off = 0,
@@ -815,7 +820,7 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 		{
 			ConstIoTool local;
 
-			fdesc = &constIoTooling[1];
+			fdesc = &constIoTooling[0];
 
 			if (constNode->constbyval)
 			{
@@ -832,30 +837,25 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 				};
 			}
 
-			WriteArrayField(into, writer, fdesc, &local.payload, flags);
+			if (WriteArrayField(into, writer, fdesc, &local.payload, flags))
+				last_written_field = fdesc->nfd_field_no;
 		}
-		else if (constNode->constlen == -1) /* TOAST */
+		else if (constNode->constlen == -1) /* varlena */
 		{
-			ConstIoTool local;
-
-			local = (ConstIoTool) {
-				.len = VARSIZE_ANY_EXHDR(constNode->constvalue),
-				.payload = VARDATA_ANY(constNode->constvalue),
-			};
-			fdesc = &constIoTooling[0];
-
-			fwriter = writer->nw_fld_writers[fdesc->nfd_type];
-			fwriter(into, fdesc, &local.len, flags);
+			fwriter = writer->nw_fld_writers[NFT_VARLENA];
 
 			fdesc = &constIoTooling[1];
-			WriteArrayField(into, writer, fdesc, &local.payload, flags);
+
+			if (fwriter(into, fdesc, (void *) &constNode->constvalue, flags))
+				last_written_field = fdesc->nfd_field_no;
 		}
 		else if (constNode->constlen == -2) /* cstring */
 		{
 			fdesc = &constIoTooling[2];
 
 			fwriter = writer->nw_fld_writers[fdesc->nfd_type];
-			fwriter(into, fdesc, (void *) &constNode->constvalue, flags);
+			if (fwriter(into, fdesc, (void *) &constNode->constvalue, flags))
+				last_written_field = fdesc->nfd_field_no;
 		}
 
 		descData.nd_fields = fdesc->nfd_field_no + 1;
@@ -892,7 +892,7 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 		if (node->constlen > 0)
 		{
 			ConstIoTool local;
-			fdesc = &constIoTooling[1];
+			fdesc = &constIoTooling[0];
 
 			if (node->constbyval)
 			{
@@ -916,21 +916,11 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 		}
 		else if (node->constlen == -1) /* TOAST */
 		{
-			ConstIoTool		local;
-			void		   *data;
-			
-			fdesc = &constIoTooling[0];
+			fdesc = &constIoTooling[1];
 
 			freader = reader->nr_fld_readers[fdesc->nfd_type];
-			freader(from, fdesc, &local.len, flags);
-			data = palloc(local.len + 4);
-			local.payload = ((char *) data) + 4;
 
-			SET_VARSIZE(data, local.len + 4);
-
-			fdesc = &constIoTooling[1];
-			if (ReadArrayField(from, reader, fdesc, &local.payload,
-				flags | ND_READ_ARRAY_PREALLOCATED))
+			if (freader(from, fdesc, &node->constvalue, flags))
 				last_read = fdesc->nfd_field_no;
 		}
 		else if (node->constlen == -2) /* cstring */
@@ -1091,21 +1081,6 @@ WriteNodeForeignKeyOptInfo(StringInfo into, const Node *node,
 
 Node *
 ReadNodeForeignKeyOptInfo(StringInfo from, NodeReader reader, uint32 flags)
-{
-	Assert(false);
-	return NULL;
-}
-
-bool
-WriteNodeRangeTblEntry(StringInfo into, const Node *node,
-						NodeWriter writer, uint32 flags)
-{
-	Assert(false);
-	return false;
-}
-
-Node *
-ReadNodeRangeTblEntry(StringInfo from, NodeReader reader, uint32 flags)
 {
 	Assert(false);
 	return NULL;
