@@ -172,8 +172,19 @@ castNodeImpl(NodeTag type, void *ptr)
 	return (Node *) ptr;
 }
 #define castNode(_type_, nodeptr) ((_type_ *) castNodeImpl(T_##_type_, nodeptr))
+
+static inline const Node *
+castConstNodeImpl(NodeTag type, const void *ptr)
+{
+	Assert(ptr == NULL || nodeTag(ptr) == type);
+	return (const Node *) ptr;
+}
+#define castConstNode(_type_, nodeptr) \
+	((const _type_ *) castConstNodeImpl(T_##_type_, nodeptr))
+
 #else
 #define castNode(_type_, nodeptr) ((_type_ *) (nodeptr))
+#define castConstNode(_type_, nodeptr) ((const _type_ *) (nodeptr))
 #endif							/* USE_ASSERT_CHECKING */
 
 /* ----------------------------------------------------------------

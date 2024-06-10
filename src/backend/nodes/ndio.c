@@ -80,6 +80,7 @@ ReadArrayValue(StringInfo from, NodeReader reader, NodeFieldType type,
 	*array = (void *) fld;
 	return true;
 }
+
 static bool
 ReadArrayField(StringInfo from, NodeReader reader, NodeFieldDesc fdesc,
 			   const void **array, uint32 flags)
@@ -360,7 +361,7 @@ bool
 WriteNodeBitmapset(StringInfo into, const Node *node, NodeWriter writer,
 				   uint32 flags)
 {
-	const Bitmapset *bitmapset = castNode(Bitmapset, node);
+	const Bitmapset *bitmapset = castConstNode(Bitmapset, node);
 	BitmapsetTool	tool = {
 		.nwords = bitmapset->nwords,
 		.words = bitmapset->words,
@@ -579,7 +580,7 @@ WriteNodeInteger(StringInfo into, const Node *node, NodeWriter writer,
 				 uint32 flags)
 {
 	NodeDesc	desc = GetNodeDesc(T_Integer);
-	Integer	   *intNode = castNode(Integer, node);
+	const Integer *intNode = castConstNode(Integer, node);
 
 	writer->nw_start_node(into, desc, flags);
 
@@ -609,7 +610,7 @@ WriteNodeFloat(StringInfo into, const Node *node, NodeWriter writer,
 			   uint32 flags)
 {
 	NodeDesc	desc = GetNodeDesc(T_Float);
-	Float	   *floatNode = castNode(Float, node);
+	const Float *floatNode = castConstNode(Float, node);
 
 	writer->nw_start_node(into, desc, flags);
 
@@ -639,7 +640,7 @@ WriteNodeBoolean(StringInfo into, const Node *node, NodeWriter writer,
 				 uint32 flags)
 {
 	NodeDesc	desc = GetNodeDesc(T_Boolean);
-	Boolean	   *boolNode = castNode(Boolean, node);
+	const Boolean *boolNode = castConstNode(Boolean, node);
 
 	writer->nw_start_node(into, desc, flags);
 
@@ -669,7 +670,7 @@ WriteNodeString(StringInfo into, const Node *node, NodeWriter writer,
 				uint32 flags)
 {
 	NodeDesc	desc = GetNodeDesc(T_String);
-	String	   *stringNode = castNode(String, node);
+	const String *stringNode = castConstNode(String, node);
 
 	Assert(PointerIsValid(stringNode->sval));
 
@@ -699,7 +700,7 @@ WriteNodeBitString(StringInfo into, const Node *node, NodeWriter writer,
 				   uint32 flags)
 {
 	NodeDesc	desc = GetNodeDesc(T_BitString);
-	BitString  *bsNode = castNode(BitString, node);
+	const BitString *bsNode = castConstNode(BitString, node);
 
 	Assert(PointerIsValid(bsNode->bsval));
 
@@ -788,7 +789,7 @@ bool
 WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 				   uint32 flags)
 {
-	const Const *constNode = castNode(Const, node);
+	const Const *constNode = castConstNode(Const, node);
 	NodeDescData descData;
 	NodeDesc	desc = GetNodeDesc(T_Const);
 	NodeFieldDesc fdesc;
@@ -966,7 +967,7 @@ bool
 WriteNodeA_Const(StringInfo into, const Node *node, NodeWriter writer,
 				  uint32 flags)
 {
-	const A_Const *constNode = castNode(A_Const, node);
+	const A_Const *constNode = castConstNode(A_Const, node);
 	NodeDesc		desc = GetNodeDesc(T_A_Const);
 	NodeFieldDesc	fdesc;
 	WriteTypedField	fwriter;
@@ -1027,7 +1028,7 @@ bool
 WriteNodeEquivalenceClass(StringInfo into, const Node *node,
 						  NodeWriter writer, uint32 flags)
 {
-	const EquivalenceClass *ecNode = castNode(EquivalenceClass, node);
+	const EquivalenceClass *ecNode = castConstNode(EquivalenceClass, node);
 	NodeDesc		desc = GetNodeDesc(T_EquivalenceClass);
 	NodeFieldDesc	fdesc;
 	WriteTypedField	fwriter;
