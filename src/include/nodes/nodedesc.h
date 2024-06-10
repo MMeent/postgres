@@ -9,13 +9,10 @@
  */
 typedef enum NodeFieldType {
 	NFT_UNDEFINED,
-	/*
-	 * Scalar values, plus their array type tags
-	 * Each scalar value has a 0 argument, each _array type stores the
-	 * offset off the base pointer of the 
-	 */
+	/* Scalar values */
 	NFT_BOOL,
 	NFT_PARSELOC,
+	NFT_TYPMOD,
 	NFT_INT,
 	NFT_INT16,
 	NFT_INT32,
@@ -28,12 +25,12 @@ typedef enum NodeFieldType {
 	NFT_DOUBLE,
 	NFT_ENUM,
 	/* various by-ref field types */
-	NFT_VARLENA,
-	NFT_CSTRING,
+	NFT_VARLENA,	/* primarily used for NodeTree values, but any varlena is valid */
+	NFT_CSTRING,	/* 0-terminated strings */
 	NFT_NODE,		/* any node */
 	/* invalid unique type values follow */
-	NFT_NUM_TYPES = 17,			/* invalid, but used as n_*/
-	/* used as bit showing array types. */
+	NFT_NUM_TYPES = 18,			/* invalid */
+	/* used as bitmask for array types. */
 	NFT_ARRAYTYPE = 32,
 } NodeFieldType;
 
@@ -60,10 +57,10 @@ typedef struct NodeDescData {
 typedef const NodeDescData *NodeDesc;
 
 typedef struct NodeFieldDescData {
-	char		   *nfd_name;		/* name of the field. Unique for each node. */
-	NodeTag			nfd_node;		/* field in which node? */
-	NodeFieldType	nfd_type;		/* field type */
-	uint8			nfd_namelen;	/* length of field name */
+	char		   *nfd_name;		/* name of this field; unique within each node. */
+	NodeTag			nfd_node;		/* NodeTag of node type of which this is a field */
+	NodeFieldType	nfd_type;		/* type of this field */
+	uint8			nfd_namelen;	/* length of this field's name */
 	uint8			nfd_field_no;	/* field number */
 	uint16			nfd_offset;		/* offset from Node base pointer */
 	uint16			nfd_flags;		/* flag bits */

@@ -136,7 +136,7 @@ my @nodetag_only;
 my @simple_scalar_types = qw(
   bits32 bool char double int int8 int16 int32 int64 long uint8 uint16 uint32 uint64
   AclMode AttrNumber Cardinality Cost Index Oid RelFileNumber Selectivity Size
-  StrategyNumber SubTransactionId TimeLineID XLogRecPtr ParseLoc 
+  StrategyNumber SubTransactionId TimeLineID XLogRecPtr ParseLoc TypMod
 );
 
 my @scalar_types = @simple_scalar_types;
@@ -1033,7 +1033,8 @@ _read${n}(void)
 			|| $t eq 'int16'
 			|| $t eq 'int32'
 			|| $t eq 'AttrNumber'
-			|| $t eq 'StrategyNumber')
+			|| $t eq 'StrategyNumber'
+			|| $t eq 'TypMod')
 		{
 			print $off "\tWRITE_INT_FIELD($f);\n";
 			print $rff "\tREAD_INT_FIELD($f);\n" unless $no_read;

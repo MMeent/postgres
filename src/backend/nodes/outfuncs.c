@@ -813,7 +813,7 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 	INSTR_TIME_ACCUM_DIFF(duration_oldtext, end, start);
 	len_oldtext = str.len;
 
-	ereport(LOG, errhidecontext(true), errhidestmt(true),
+	ereport(DEBUG1, errhidecontext(true), errhidestmt(true),
 			errmsg_internal("ot/nt/bin: written=%u/%u/%u timing_us="
 							UINT64_FORMAT "/" UINT64_FORMAT "/" UINT64_FORMAT,
 							len_oldtext, len_newtext, len_binary,

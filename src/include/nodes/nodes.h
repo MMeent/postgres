@@ -248,6 +248,13 @@ extern bool equal(const void *a, const void *b);
  * -1 is used for unknown.
  */
 typedef int ParseLoc;
+/*
+ * Typedef for typemod. Like ParseLoc this is just an int, this way
+ * gen_node_support.pl knows to treat these fields specially.
+ *
+ * Most types have -1 (no typemod) as default and only valid option.
+ */
+typedef int32 TypMod;
 
 /*
  * Typedefs for identifying qualifier selectivities, plan costs, and row

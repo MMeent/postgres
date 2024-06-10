@@ -3409,7 +3409,7 @@ typedef struct AggTransInfo
 	Oid			aggtranstype;
 
 	/* Additional data about transtype */
-	int32		aggtranstypmod;
+	TypMod		aggtranstypmod;
 	int			transtypeLen;
 	bool		transtypeByVal;
 

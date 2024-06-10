@@ -460,6 +460,7 @@ tnvr_unimplemented(StringInfo from, void *field, uint32 flags)
 
 TextScalarFieldReader(bool, BOOL, false, strtobool)
 TextScalarFieldReader(ParseLoc, PARSELOC, -1, atoi)
+TextScalarFieldReader(TypMod, TYPMOD, -1, atoi)
 TextScalarFieldReader(int, INT, 0, atoi)
 TextScalarFieldReader(int16, INT16, 0, atoi)
 TextScalarFieldReader(int32, INT32, 0, atoi)
@@ -499,6 +500,7 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsfr_unimpl(UNDEFINED),
 		tsfr(BOOL),
 		tsfr(PARSELOC),
+		tsfr(TYPMOD),
 		tsfr(INT),
 		tsfr(INT16),
 		tsfr(INT32),
@@ -518,6 +520,7 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsvr_unimpl(UNDEFINED),
 		tsvr(BOOL),
 		tsvr(PARSELOC),
+		tsvr(TYPMOD),
 		tsvr(INT),
 		tsvr(INT16),
 		tsvr(INT32),
@@ -786,6 +789,7 @@ TextScalarFieldWriter(char, CHAR, 0, writeout(outChar))
 TextScalarFieldWriter(double, DOUBLE, 0.0, writeout(outDouble))
 
 TextScalarFieldWriter(ParseLoc, PARSELOC, -1, format("%d"))
+TextScalarFieldWriter(TypMod, TYPMOD, -1, format("%d"))
 TextScalarFieldWriter(int, INT, 0, format("%d"))
 TextScalarFieldWriter(int16, INT16, 0, format("%d"))
 TextScalarFieldWriter(int32, INT32, 0, format("%d"))
@@ -821,6 +825,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsfw_unimpl(UNDEFINED),
 		tsfw(BOOL),
 		tsfw(PARSELOC),
+		tsfw(TYPMOD),
 		tsfw(INT),
 		tsfw(INT16),
 		tsfw(INT32),
@@ -840,6 +845,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsvw_unimpl(UNDEFINED),
 		tsvw(BOOL),
 		tsvw(PARSELOC),
+		tsvw(TYPMOD),
 		tsvw(INT),
 		tsvw(INT16),
 		tsvw(INT32),

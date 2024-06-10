@@ -314,6 +314,7 @@ bnvr_unimplemented(StringInfo from, void *field, uint32 flags)
 
 BinaryScalarFieldReader(bool, BOOL, false)
 BinaryScalarFieldReader(ParseLoc, PARSELOC, -1)
+BinaryScalarFieldReader(TypMod, TYPMOD, -1)
 BinaryScalarFieldReader(int, INT, 0)
 BinaryScalarFieldReader(int16, INT16, 0)
 BinaryScalarFieldReader(int32, INT32, 0)
@@ -352,6 +353,7 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		bsfr_unimpl(UNDEFINED),
 		bsfr(BOOL),
 		bsfr(PARSELOC),
+		bsfr(TYPMOD),
 		bsfr(INT),
 		bsfr(INT16),
 		bsfr(INT32),
@@ -373,6 +375,7 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		bsvr_unimpl(UNDEFINED),
 		bsvr(BOOL),
 		bsvr(PARSELOC),
+		bsvr(TYPMOD),
 		bsvr(INT),
 		bsvr(INT16),
 		bsvr(INT32),
@@ -566,6 +569,7 @@ bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 
 BinaryScalarFieldWriter(bool, BOOL, false)
 BinaryScalarFieldWriter(ParseLoc, PARSELOC, -1)
+BinaryScalarFieldWriter(TypMod, TYPMOD, -1)
 BinaryScalarFieldWriter(int, INT, 0)
 BinaryScalarFieldWriter(int16, INT16, 0)
 BinaryScalarFieldWriter(int32, INT32, 0)
@@ -599,6 +603,7 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		bsfw_unimpl(UNDEFINED),
 		bsfw(BOOL),
 		bsfw(PARSELOC),
+		bsfw(TYPMOD),
 		bsfw(INT),
 		bsfw(INT16),
 		bsfw(INT32),
@@ -618,6 +623,7 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		bsvw_unimpl(UNDEFINED),
 		bsvw(BOOL),
 		bsvw(PARSELOC),
+		bsvw(TYPMOD),
 		bsvw(INT),
 		bsvw(INT16),
 		bsvw(INT32),

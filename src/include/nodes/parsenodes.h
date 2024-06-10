@@ -1660,7 +1660,7 @@ typedef struct CTECycleClause
 	ParseLoc	location;
 	/* These fields are set during parse analysis: */
 	Oid			cycle_mark_type;	/* common type of _value and _default */
-	int			cycle_mark_typmod;
+	TypMod		cycle_mark_typmod;
 	Oid			cycle_mark_collation;
 	Oid			cycle_mark_neop;	/* <> operator for type */
 } CTECycleClause;

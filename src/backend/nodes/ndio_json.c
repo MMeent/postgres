@@ -26,7 +26,7 @@
 
 /*---
  * JSON Node Writer
- *		Writer for a JSON-based node serialization format.
+ *		NodeWriter implementation for a JSON-based node serialization format.
  */
 
 #define AppendText(into, literal) \
@@ -234,6 +234,7 @@ jnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 
 JSONScalarFieldWriter(bool, BOOL, false, "")
 JSONScalarFieldWriter(ParseLoc, PARSELOC, -1, "")
+JSONScalarFieldWriter(TypMod, TYPMOD, -1, "")
 JSONScalarFieldWriter(int, INT, 0, "")
 JSONScalarFieldWriter(int16, INT16, 0, "")
 JSONScalarFieldWriter(int32, INT32, 0, "")
@@ -268,6 +269,7 @@ const NodeWriter JSONNodeWriter = &(NodeWriterData) {
 		jsfw_unimpl(UNDEFINED),
 		jsfw(BOOL),
 		jsfw(PARSELOC),
+		jsfw(TYPMOD),
 		jsfw(INT),
 		jsfw(INT16),
 		jsfw(INT32),
@@ -287,6 +289,7 @@ const NodeWriter JSONNodeWriter = &(NodeWriterData) {
 		jsvw_unimpl(UNDEFINED),
 		jsvw(BOOL),
 		jsvw(PARSELOC),
+		jsvw(TYPMOD),
 		jsvw(INT),
 		jsvw(INT16),
 		jsvw(INT32),
