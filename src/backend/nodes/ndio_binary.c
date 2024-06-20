@@ -133,22 +133,22 @@ static bool
 bnvr_VARLENA(StringInfo from, void *field, uint32 flags)
 {
 	uint32		vl_len_;
-	char	   *value;
+	struct vardata *value;
 
 	CHECK_CAN_READ(from, sizeof(uint32),
 				   "Error reading varlena data: Out of data");
 	memcpy(&vl_len_, from->data + from->cursor, sizeof(uint32));
 	from->cursor += sizeof(uint32);
 
-	CHECK_CAN_READ(from, vl_len_ - VARHDRSZ,
+	CHECK_CAN_READ(from, vl_len_,
 				   "Error reading varlena data: Out of data");
-	value = palloc(vl_len_);
+	value = palloc(vl_len_ + VARHDRSZ);
 
-	SET_VARSIZE(value, vl_len_);
-	memcpy(VARDATA(value), from->data + from->cursor, vl_len_ - VARHDRSZ);
-	from->cursor += (vl_len_ - VARHDRSZ);
+	SET_VARSIZE(value, vl_len_ + VARHDRSZ);
+	memcpy(VARDATA(value), from->data + from->cursor, vl_len_);
+	from->cursor += vl_len_;
 
-	*((char **) field) = value;
+	*((struct vardata **) field) = value;
 
 	return true;
 }
@@ -319,6 +319,7 @@ BinaryScalarFieldReader(int, INT, 0)
 BinaryScalarFieldReader(int16, INT16, 0)
 BinaryScalarFieldReader(int32, INT32, 0)
 BinaryScalarFieldReader(long, LONG, 0)
+BinaryScalarFieldReader(uint8, UINT8, 0)
 BinaryScalarFieldReader(uint16, UINT16, 0)
 BinaryScalarFieldReader(uint32, UINT32, 0)
 BinaryScalarFieldReader(uint64, UINT64, 0)
@@ -358,6 +359,7 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		bsfr(INT16),
 		bsfr(INT32),
 		bsfr(LONG),
+		bsfr(UINT8),
 		bsfr(UINT16),
 		bsfr(UINT32),
 		bsfr(UINT64),
@@ -380,6 +382,7 @@ const NodeReader BinaryNodeReader = &(NodeReaderData) {
 		bsvr(INT16),
 		bsvr(INT32),
 		bsvr(LONG),
+		bsvr(UINT8),
 		bsvr(UINT16),
 		bsvr(UINT32),
 		bsvr(UINT64),
@@ -457,12 +460,13 @@ bnvw_VARLENA(StringInfo into, const void *value, uint32 flags)
 	struct varlena *vlna = *(struct varlena **) value;
 	struct varlena *vlnb;
 	uint32		vl_len_;
+	Assert(vlna != NULL);
 
 	vlnb = pg_detoast_datum(vlna);
-	vl_len_ = VARSIZE_ANY_EXHDR(vlnb) + VARHDRSZ;
+	vl_len_ = VARSIZE_ANY_EXHDR(vlnb);
 
 	appendBinaryStringInfo(into, &vl_len_, sizeof(uint32));
-	appendBinaryStringInfo(into, VARDATA(vlnb), VARSIZE_ANY_EXHDR(vlnb));
+	appendBinaryStringInfo(into, VARDATA_ANY(vlnb), VARSIZE_ANY_EXHDR(vlnb));
 
 	if (vlna != vlnb)
 		pfree(vlnb);
@@ -574,6 +578,7 @@ BinaryScalarFieldWriter(int, INT, 0)
 BinaryScalarFieldWriter(int16, INT16, 0)
 BinaryScalarFieldWriter(int32, INT32, 0)
 BinaryScalarFieldWriter(long, LONG, 0)
+BinaryScalarFieldWriter(uint8, UINT8, 0)
 BinaryScalarFieldWriter(uint16, UINT16, 0)
 BinaryScalarFieldWriter(uint32, UINT32, 0)
 BinaryScalarFieldWriter(uint64, UINT64, 0)
@@ -608,6 +613,7 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		bsfw(INT16),
 		bsfw(INT32),
 		bsfw(LONG),
+		bsfw(UINT8),
 		bsfw(UINT16),
 		bsfw(UINT32),
 		bsfw(UINT64),
@@ -628,6 +634,7 @@ const NodeWriter BinaryNodeWriter = &(NodeWriterData) {
 		bsvw(INT16),
 		bsvw(INT32),
 		bsvw(LONG),
+		bsvw(UINT8),
 		bsvw(UINT16),
 		bsvw(UINT32),
 		bsvw(UINT64),

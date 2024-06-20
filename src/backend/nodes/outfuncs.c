@@ -859,6 +859,67 @@ nodeToNodeTreeWithLocations(const void *obj)
 	return result;
 }
 
+
+#ifdef WRITE_READ_PARSE_PLAN_TREES
+void *
+writeReadParsePlanTrees(const void *node, bool validate)
+{
+	StringInfoData holder;
+	char	   *str;
+	void	   *new_node;
+
+	initStringInfo(&holder);
+
+	WriteNode(&holder, (Node *) node, TextNodeWriter, 0);
+	new_node = ReadNode(&holder, TextNodeReader, 0);
+
+	if (validate && !assertEqual(new_node, node))
+	{
+		StringInfoData	compare;
+		initStringInfo(&compare);
+		WriteNode(&compare, new_node, TextNodeWriter, 0);
+		if (compare.len != holder.len || memcmp(compare.data, holder.data, compare.len) != 0)
+			elog(PANIC, "Text IO failed to produce an equal raw parse tree; re-entrant");
+		else
+			elog(PANIC, "Text IO failed to produce an equal raw parse tree");
+	}
+	else
+		node = new_node;
+
+	resetStringInfo(&holder);
+
+	WriteNode(&holder, (Node *) node, BinaryNodeWriter, 0);
+	new_node = ReadNode(&holder, BinaryNodeReader, 0);
+
+	if (validate && !assertEqual(new_node, node))
+	{
+		StringInfoData	compare;
+		initStringInfo(&compare);
+		WriteNode(&compare, new_node, BinaryNodeWriter, 0);
+		if (compare.len != holder.len || memcmp(compare.data, holder.data, compare.len) != 0)
+			elog(PANIC, "Binary IO failed to produce an equal raw parse tree; re-entrant");
+		else
+			elog(PANIC, "Binary IO failed to produce an equal raw parse tree");
+	}
+	else
+		node = new_node;
+
+	str = nodeToStringWithLocations(node);
+	new_node = stringToNodeWithLocations(str);
+
+	pfree(str);
+
+	/* This checks both outfuncs/readfuncs and the equal() routines... */
+	if (validate && !assertEqual(new_node, node))
+		elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
+	else
+		node = new_node;
+
+	return (void *) node;
+}
+#endif
+
+
 /*
  * Externally visible entry points
  */

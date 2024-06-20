@@ -62,7 +62,7 @@
 #define equalstr(a, b)	\
 	(((a) != NULL && (b) != NULL) ? (strcmp(a, b) == 0) : (a) == (b))
 
-/* Compare a field that is a pointer to a C string, or perhaps NULL */
+/* Compare a field that is a pointer to a varlena field, or perhaps NULL */
 #define COMPARE_VARLENA_FIELD(fldname) \
 	do { \
 		if (a->fldname != b->fldname && ( \

@@ -1,7 +1,8 @@
 /*-------------------------------------------------------------------------
  *
  * ndio.c
- *		Various definitions and for NodeDesc-based IO infrastructure
+ *		Various definitions and implementations for NodeDesc-based IO
+ *		infrastructure
  *
  * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -33,6 +34,7 @@ int		type_sizes[NFT_NUM_TYPES] = {
 	TYPESIZE(INT16, int16),
 	TYPESIZE(INT32, int32),
 	TYPESIZE(LONG, long),
+	TYPESIZE(UINT8, uint8),
 	TYPESIZE(UINT16, uint16),
 	TYPESIZE(UINT32, uint32),
 	TYPESIZE(UINT64, uint64),
@@ -46,67 +48,18 @@ int		type_sizes[NFT_NUM_TYPES] = {
 #undef TYPESIZE
 
 
-static bool
-ReadArrayValue(StringInfo from, NodeReader reader, NodeFieldType type,
-			   const void **array, int arrlen, uint32 flags)
-{
-	char	   *fld;
-	NodeFieldType basetype = type & ~NFT_ARRAYTYPE;
-	const int	val_size = type_sizes[basetype];
-	ReadTypedValue	fvr = reader->nr_val_readers[basetype];
-
-	if (!reader->nr_start_array(from, flags))
-	{
-		Assert(!(flags & ND_READ_ARRAY_PREALLOCATED));
-		*array = NULL;
-		return true;
-	}
-
-	/* we're at the start of array data, now we can start reading values */
-	if (flags & ND_READ_ARRAY_PREALLOCATED)
-		fld = (char *) (*array);
-	else
-		fld = palloc(arrlen * val_size);
-
-	for (int i = 0; i < arrlen; i++)
-	{
-		if (i > 0 && reader->nr_array_value_separator)
-			reader->nr_array_value_separator(from, flags);
-		fvr(from, fld + i * val_size, flags);
-	}
-
-	if (reader->nr_end_array)
-		reader->nr_end_array(from, flags);
-	*array = (void *) fld;
-	return true;
-}
-
-static bool
-ReadArrayField(StringInfo from, NodeReader reader, NodeFieldDesc fdesc,
-			   const void **array, uint32 flags)
-{
-	int			arrlen;
-
-	if (!reader->nr_start_field(from, fdesc, flags))
-		return false;
-
-	if (fdesc->nfd_arrlen_off < 0)
-	{
-		arrlen = *(int *) (((char *) array) + ((ssize_t) fdesc->nfd_arrlen_off));
-	}
-	else
-	{
-		List	   *donor = *(List **)
-			(((char *) array) - ((ssize_t) fdesc->nfd_arrlen_off));
-		arrlen = list_length(donor);
-	}
-
-	ReadArrayValue(from, reader, fdesc->nfd_type, array, arrlen, flags);
-
-	if (reader->nr_end_field)
-		reader->nr_end_field(from, flags);
-	return true;
-}
+static bool ReadArrayValue(StringInfo from, NodeReader reader,
+						   NodeFieldType type, const void **array,
+						   int arrlen, uint32 flags);
+static bool ReadArrayField(StringInfo from, NodeReader reader,
+						   NodeFieldDesc fdesc, const void **array,
+						   uint32 flags);
+static bool WriteArrayValue(StringInfo into, NodeWriter writer,
+							NodeFieldType type, const void **array,
+							int arraylen, uint32 flags);
+static bool WriteArrayField(StringInfo into, NodeWriter writer,
+							NodeFieldDesc fdesc, const void **array,
+							uint32 flags);
 
 Node *
 ReadNode(StringInfo from, NodeReader reader, uint32 flags)
@@ -175,83 +128,6 @@ ReadNode(StringInfo from, NodeReader reader, uint32 flags)
 	return node;
 }
 
-static bool
-WriteArrayValue(StringInfo into, NodeWriter writer, NodeFieldType type,
-				const void **array, int arraylen, uint32 flags)
-{
-
-	char	   *fld = *(char **) (array);
-	NodeFieldType basetype = type & ~NFT_ARRAYTYPE;
-	const int	val_len = type_sizes[basetype];
-	WriteTypedValue	fvw = writer->nw_val_writers[basetype];
-
-	if (fld == NULL)
-	{
-		writer->nw_write_null(into, flags);
-		return true;
-	}
-
-	writer->nw_start_array(into, flags);
-
-	for (int j = 0; j < arraylen; j++)
-	{
-		if (j > 0 && writer->nw_field_entry_separator)
-			writer->nw_field_entry_separator(into, flags);
-		fvw(into, fld, flags);
-		fld += val_len;
-	}
-
-	if (writer->nw_end_array)
-		writer->nw_end_array(into, flags);
-
-	return true;
-}
-
-static bool
-WriteArrayField(StringInfo into, NodeWriter writer, NodeFieldDesc fdesc,
-				const void **array, uint32 flags)
-{
-
-	char	   *fld = *(char **) (array);
-	int			arrlen;
-
-	if (fld == NULL)
-	{
-		if ((writer->flags | flags) & ND_WRITE_NO_SKIP_DEFAULTS)
-		{
-			writer->nw_start_field(into, fdesc, flags);
-			writer->nw_write_null(into, flags);
-			if (writer->nw_end_field)
-				writer->nw_end_field(into, flags);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-
-	writer->nw_start_field(into, fdesc, flags);
-	if (fdesc->nfd_arrlen_off < 0)
-	{
-		arrlen = *(int *) (((char *) array) + ((ssize_t) fdesc->nfd_arrlen_off));
-	}
-	else
-	{
-		List	   *donor = *(List **) 
-			(((char *) array) - ((ssize_t) fdesc->nfd_arrlen_off));
-		arrlen = list_length(donor);
-	}
-
-	WriteArrayValue(into, writer, fdesc->nfd_type, array, arrlen, flags);
-
-	if (writer->nw_end_field)
-		writer->nw_end_field(into, flags);
-
-	return true;
-}
-
-
 bool
 WriteNode(StringInfo into, const Node *node, NodeWriter writer, uint32 flags)
 {
@@ -317,13 +193,151 @@ WriteNode(StringInfo into, const Node *node, NodeWriter writer, uint32 flags)
 	return writer->nw_finish_node(into, desc, last_written_field, flags);
 }
 
+static bool
+ReadArrayValue(StringInfo from, NodeReader reader, NodeFieldType type,
+			   const void **array, int arrlen, uint32 flags)
+{
+	char	   *fld;
+	NodeFieldType basetype = type & ~NFT_ARRAYTYPE;
+	const int	val_size = type_sizes[basetype];
+	ReadTypedValue	fvr = reader->nr_val_readers[basetype];
+
+	if (!reader->nr_start_array(from, flags))
+	{
+		Assert(!(flags & ND_READ_ARRAY_PREALLOCATED));
+		*array = NULL;
+		return true;
+	}
+
+	/* we're at the start of array data, now we can start reading values */
+	if (flags & ND_READ_ARRAY_PREALLOCATED)
+		fld = (char *) (*array);
+	else
+		fld = palloc(arrlen * val_size);
+
+	for (int i = 0; i < arrlen; i++)
+	{
+		if (i > 0 && reader->nr_array_value_separator)
+			reader->nr_array_value_separator(from, flags);
+		fvr(from, fld + i * val_size, flags);
+	}
+
+	if (reader->nr_end_array)
+		reader->nr_end_array(from, flags);
+	*array = (void *) fld;
+	return true;
+}
+
+static bool
+ReadArrayField(StringInfo from, NodeReader reader, NodeFieldDesc fdesc,
+			   const void **array, uint32 flags)
+{
+	int			arrlen;
+
+	if (!reader->nr_start_field(from, fdesc, flags))
+		return false;
+
+	if (fdesc->nfd_arrlen_off < 0)
+	{
+		arrlen = *(int *) (((char *) array) + ((ssize_t) fdesc->nfd_arrlen_off));
+	}
+	else
+	{
+		List	   *donor = *(List **)
+			(((char *) array) - ((ssize_t) fdesc->nfd_arrlen_off));
+		arrlen = list_length(donor);
+	}
+
+	ReadArrayValue(from, reader, fdesc->nfd_type, array, arrlen, flags);
+
+	if (reader->nr_end_field)
+		reader->nr_end_field(from, flags);
+	return true;
+}
+
+static bool
+WriteArrayValue(StringInfo into, NodeWriter writer, NodeFieldType type,
+				const void **array, int arraylen, uint32 flags)
+{
+
+	char	   *fld = *(char **) (array);
+	NodeFieldType basetype = type & ~NFT_ARRAYTYPE;
+	const int	val_len = type_sizes[basetype];
+	WriteTypedValue	fvw = writer->nw_val_writers[basetype];
+
+	if (fld == NULL)
+	{
+		writer->nw_write_null(into, flags);
+		return true;
+	}
+
+	writer->nw_start_array(into, flags);
+
+	for (int j = 0; j < arraylen; j++)
+	{
+		if (j > 0 && writer->nw_field_entry_separator)
+			writer->nw_field_entry_separator(into, flags);
+		fvw(into, fld + j * val_len, flags);
+	}
+
+	if (writer->nw_end_array)
+		writer->nw_end_array(into, flags);
+
+	return true;
+}
+
+static bool
+WriteArrayField(StringInfo into, NodeWriter writer, NodeFieldDesc fdesc,
+				const void **array, uint32 flags)
+{
+
+	const char	   *fld = *(const char **) (array);
+	int			arrlen;
+
+	if (fld == NULL)
+	{
+		if ((writer->flags | flags) & ND_WRITE_NO_SKIP_DEFAULTS)
+		{
+			writer->nw_start_field(into, fdesc, flags);
+			writer->nw_write_null(into, flags);
+			if (writer->nw_end_field)
+				writer->nw_end_field(into, flags);
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	writer->nw_start_field(into, fdesc, flags);
+	if (fdesc->nfd_arrlen_off < 0)
+	{
+		arrlen = *(int *) (((char *) array) + ((ssize_t) fdesc->nfd_arrlen_off));
+	}
+	else
+	{
+		List	   *donor = *(List **) 
+			(((char *) array) - ((ssize_t) fdesc->nfd_arrlen_off));
+		arrlen = list_length(donor);
+	}
+
+	WriteArrayValue(into, writer, fdesc->nfd_type, array, arrlen, flags);
+
+	if (writer->nw_end_field)
+		writer->nw_end_field(into, flags);
+
+	return true;
+}
+
+
+
 #define CustomNodeRead(_type_) \
 extern Node *ReadNode##_type_(StringInfo from, NodeReader reader, uint32 flags);
 #define CustomNodeWrite(_type_) \
 extern bool WriteNode##_type_(StringInfo into, const Node *node, \
 							  NodeWriter writer, uint32 flags);
 #include "nodedesc.overrides.c"
-#include "varatt.h"
 
 #undef CustomNodeRead
 #undef CustomNodeWrite
@@ -347,7 +361,11 @@ static const NodeFieldDescData bitmapIoTooling[] = {
 	{
 		.nfd_name = "words",
 		.nfd_node = T_Bitmapset,
+#if BITS_PER_BITMAPWORD == 64
 		.nfd_type = NFT_UINT64 + NFT_ARRAYTYPE,
+#else
+		.nfd_type = NFT_UINT32 + NFT_ARRAYTYPE,
+#endif
 		.nfd_namelen = sizeof("words") - 1,
 		.nfd_field_no = 0,
 		.nfd_offset = offsetof(BitmapsetTool, words),
@@ -401,6 +419,10 @@ ReadNodeBitmapset(StringInfo from, NodeReader reader, uint32 flags)
 	fieldReader(from, &bitmapIoTooling[0], &tool.nwords, flags);
 
 	bitmapset = palloc(sizeof(Bitmapset) + tool.nwords * sizeof(bitmapword));
+	bitmapset->nwords = tool.nwords;
+	bitmapset->type = T_Bitmapset;
+
+	/* use a local field for the indirect pointer */
 	tool.words = bitmapset->words;
 
 	reader->nr_start_field(from, &bitmapIoTooling[1], flags);
@@ -589,6 +611,8 @@ WriteNodeInteger(StringInfo into, const Node *node, NodeWriter writer,
 
 	writer->nw_val_writers[NFT_INT](into, &intNode->ival, flags);
 
+	writer->nw_finish_node(into, desc, -1, flags);
+
 	return true;
 }
 
@@ -596,11 +620,14 @@ Node *
 ReadNodeInteger(StringInfo from, NodeReader reader, uint32 flags)
 {
 	Integer	   *node = makeNode(Integer);
+	NodeDesc		desc = GetNodeDesc(T_Integer);
 
 	if (reader->nr_array_value_separator)
 		reader->nr_array_value_separator(from, flags);
 
 	reader->nr_val_readers[NFT_INT](from, &node->ival, flags);
+
+	reader->nr_finish_node(from, desc, -1, flags);
 
 	return (Node *) node;
 }
@@ -619,6 +646,8 @@ WriteNodeFloat(StringInfo into, const Node *node, NodeWriter writer,
 
 	writer->nw_val_writers[NFT_CSTRING](into, &floatNode->fval, flags);
 
+	writer->nw_finish_node(into, desc, -1, flags);
+
 	return true;
 }
 
@@ -626,11 +655,14 @@ Node *
 ReadNodeFloat(StringInfo from, NodeReader reader, uint32 flags)
 {
 	Float	   *node = makeNode(Float);
+	NodeDesc		desc = GetNodeDesc(T_Float);
 
 	if (reader->nr_array_value_separator)
 		reader->nr_array_value_separator(from, flags);
 
 	reader->nr_val_readers[NFT_CSTRING](from, &node->fval, flags);
+
+	reader->nr_finish_node(from, desc, -1, flags);
 
 	return (Node *) node;
 }
@@ -649,6 +681,8 @@ WriteNodeBoolean(StringInfo into, const Node *node, NodeWriter writer,
 
 	writer->nw_val_writers[NFT_BOOL](into, &boolNode->boolval, flags);
 
+	writer->nw_finish_node(into, desc, -1, flags);
+
 	return true;
 }
 
@@ -656,11 +690,14 @@ Node *
 ReadNodeBoolean(StringInfo from, NodeReader reader, uint32 flags)
 {
 	Boolean	   *node = makeNode(Boolean);
+	NodeDesc		desc = GetNodeDesc(T_Boolean);
 
 	if (reader->nr_array_value_separator)
 		reader->nr_array_value_separator(from, flags);
 
 	reader->nr_val_readers[NFT_BOOL](from, &node->boolval, flags);
+
+	reader->nr_finish_node(from, desc, -1, flags);
 
 	return (Node *) node;
 }
@@ -679,6 +716,8 @@ WriteNodeString(StringInfo into, const Node *node, NodeWriter writer,
 		writer->nw_field_entry_separator(into, flags);
 	writer->nw_val_writers[NFT_CSTRING](into, &stringNode->sval, flags);
 
+	writer->nw_finish_node(into, desc, -1, flags);
+
 	return true;
 }
 
@@ -686,11 +725,14 @@ Node *
 ReadNodeString(StringInfo from, NodeReader reader, uint32 flags)
 {
 	String	   *node = makeNode(String);
+	NodeDesc		desc = GetNodeDesc(T_String);
 
 	if (reader->nr_array_value_separator)
 		reader->nr_array_value_separator(from, flags);
 
 	reader->nr_val_readers[NFT_CSTRING](from, &node->sval, flags);
+
+	reader->nr_finish_node(from, desc, -1, flags);
 
 	return (Node *) node;
 }
@@ -709,6 +751,8 @@ WriteNodeBitString(StringInfo into, const Node *node, NodeWriter writer,
 		writer->nw_field_entry_separator(into, flags);
 	writer->nw_val_writers[NFT_CSTRING](into, &bsNode->bsval, flags);
 
+	writer->nw_finish_node(into, desc, -1, flags);
+
 	return true;
 }
 
@@ -716,11 +760,14 @@ Node *
 ReadNodeBitString(StringInfo from, NodeReader reader, uint32 flags)
 {
 	BitString	   *node = makeNode(BitString);
+	NodeDesc		desc = GetNodeDesc(T_BitString);
 
 	if (reader->nr_array_value_separator)
 		reader->nr_array_value_separator(from, flags);
 
 	reader->nr_val_readers[NFT_CSTRING](from, &node->bsval, flags);
+
+	reader->nr_finish_node(from, desc, -1, flags);
 
 	return (Node *) node;
 }
@@ -758,7 +805,7 @@ static const NodeFieldDescData constIoTooling[] = {
 	{
 		.nfd_name = "constvalue",
 		.nfd_node = T_Const,
-		.nfd_type = (NFT_CHAR | NFT_ARRAYTYPE),
+		.nfd_type = (NFT_UINT8 | NFT_ARRAYTYPE),
 		.nfd_namelen = sizeof("constvalue") - 1,
 		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
@@ -773,7 +820,7 @@ static const NodeFieldDescData constIoTooling[] = {
 		.nfd_field_no = 8, /* start counting after original fields */
 		.nfd_offset = 0,
 		.nfd_flags = 0,
-		.nfd_arrlen_off = (ssize_t) offsetof(ConstIoTool, len) - (ssize_t) offsetof(ConstIoTool, payload),
+		.nfd_arrlen_off = 0,
 	},
 	{
 		/* Note: Field is equivalently named and defined to the one above,
@@ -819,7 +866,6 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 		if (constNode->constlen > 0)
 		{
 			ConstIoTool local;
-
 			fdesc = &constIoTooling[0];
 
 			if (constNode->constbyval)
@@ -843,6 +889,7 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 		else if (constNode->constlen == -1) /* varlena */
 		{
 			fwriter = writer->nw_fld_writers[NFT_VARLENA];
+			Assert(PointerIsValid(constNode->constvalue));
 
 			fdesc = &constIoTooling[1];
 
@@ -852,6 +899,7 @@ WriteNodeConst(StringInfo into, const Node *node, NodeWriter writer,
 		else if (constNode->constlen == -2) /* cstring */
 		{
 			fdesc = &constIoTooling[2];
+			Assert(PointerIsValid(constNode->constvalue));
 
 			fwriter = writer->nw_fld_writers[fdesc->nfd_type];
 			if (fwriter(into, fdesc, (void *) &constNode->constvalue, flags))
@@ -903,7 +951,9 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 			}
 			else
 			{
-				node->constvalue = PointerGetDatum(palloc(node->constlen));
+				char *payload = palloc(node->constlen);
+				node->constvalue = PointerGetDatum(payload);
+
 				local = (ConstIoTool) {
 					.len = node->constlen,
 					.payload = DatumGetPointer(node->constvalue),
@@ -922,6 +972,8 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 
 			if (freader(from, fdesc, &node->constvalue, flags))
 				last_read = fdesc->nfd_field_no;
+
+			Assert(PointerIsValid(node->constvalue));
 		}
 		else if (node->constlen == -2) /* cstring */
 		{
@@ -930,6 +982,8 @@ ReadNodeConst(StringInfo from, NodeReader reader, uint32 flags)
 			freader = reader->nr_fld_readers[fdesc->nfd_type];
 			if (freader(from, fdesc, (void *) &node->constvalue, flags))
 				last_read = fdesc->nfd_field_no;
+
+			Assert(PointerIsValid(node->constvalue));
 		}
 		descData.nd_fields = fdesc->nfd_field_no + 1;
 		desc = &descData;

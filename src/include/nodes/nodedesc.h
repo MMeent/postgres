@@ -17,6 +17,7 @@ typedef enum NodeFieldType {
 	NFT_INT16,
 	NFT_INT32,
 	NFT_LONG,
+	NFT_UINT8,
 	NFT_UINT16,
 	NFT_UINT32,
 	NFT_UINT64,
@@ -29,7 +30,7 @@ typedef enum NodeFieldType {
 	NFT_CSTRING,	/* 0-terminated strings */
 	NFT_NODE,		/* any node */
 	/* invalid unique type values follow */
-	NFT_NUM_TYPES = 18,			/* invalid */
+	NFT_NUM_TYPES = 19,			/* invalid */
 	/* used as bitmask for array types. */
 	NFT_ARRAYTYPE = 32,
 } NodeFieldType;

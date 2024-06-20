@@ -208,6 +208,12 @@ extern char *nodeToString(const void *obj);
 extern char *nodeToStringWithLocations(const void *obj);
 extern char *bmsToString(const struct Bitmapset *bms);
 
+#ifdef WRITE_READ_PARSE_PLAN_TREES
+extern void *writeReadParsePlanTrees(const void *node, bool validate);
+#else
+#define writeReadParsePlanTrees(node, validate) node
+#endif
+
 /*
  * nodes/{readfuncs.c,read.c}
  */

@@ -640,51 +640,7 @@ pg_parse_query(const char *query_string)
 	 * Optional debugging check: pass raw parsetrees through
 	 * outfuncs/readfuncs
 	 */
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-	{
-		StringInfoData holder;
-		char	   *str;
-		List	   *new_list;
-
-		initStringInfo(&holder);
-
-		WriteNode(&holder, (Node *) raw_parsetree_list, TextNodeWriter, 0);
-		new_list = castNode(List, ReadNode(&holder, TextNodeReader, 0));
-		Assert(equal(new_list, raw_parsetree_list));
-
-		if (!equal(new_list, raw_parsetree_list))
-			elog(PANIC, "Text IO failed to produce an equal raw parse tree");
-		else
-		{
-			list_free_deep(raw_parsetree_list);
-			raw_parsetree_list = new_list;
-		}
-
-		resetStringInfo(&holder);
-
-		WriteNode(&holder, (Node *) raw_parsetree_list, BinaryNodeWriter, 0);
-		new_list = castNode(List, ReadNode(&holder, BinaryNodeReader, 0));
-		Assert(equal(new_list, raw_parsetree_list));
-
-		if (!equal(new_list, raw_parsetree_list))
-			elog(PANIC, "Binary IO failed to produce an equal raw parse tree");
-		else
-		{
-			list_free_deep(raw_parsetree_list);
-			raw_parsetree_list = new_list;
-		}
-
-		str = nodeToStringWithLocations(raw_parsetree_list);
-		new_list = stringToNodeWithLocations(str);
-
-		pfree(str);
-		/* This checks both outfuncs/readfuncs and the equal() routines... */
-		if (!equal(new_list, raw_parsetree_list))
-			elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
-		else
-			raw_parsetree_list = new_list;
-	}
-#endif
+	raw_parsetree_list = writeReadParsePlanTrees(raw_parsetree_list, true);
 
 	TRACE_POSTGRESQL_QUERY_PARSE_DONE(query_string);
 
@@ -882,8 +838,7 @@ pg_rewrite_query(Query *query)
 		foreach(lc, querytree_list)
 		{
 			Query	   *curr_query = lfirst_node(Query, lc);
-			char	   *str = nodeToStringWithLocations(curr_query);
-			Query	   *new_query = stringToNodeWithLocations(str);
+			Query	   *new_query = writeReadParsePlanTrees(curr_query, true);
 
 			/*
 			 * queryId is not saved in stored rules, but we must preserve it
@@ -892,12 +847,11 @@ pg_rewrite_query(Query *query)
 			new_query->queryId = curr_query->queryId;
 
 			new_list = lappend(new_list, new_query);
-			pfree(str);
 		}
 
 		/* This checks both outfuncs/readfuncs and the equal() routines... */
 		if (!equal(new_list, querytree_list))
-			elog(WARNING, "outfuncs/readfuncs failed to produce an equal rewritten parse tree");
+			elog(PANIC, "outfuncs/readfuncs failed to produce an equal rewritten parse tree");
 		else
 			querytree_list = new_list;
 	}
@@ -958,29 +912,7 @@ pg_plan_query(Query *querytree, const char *query_string, int cursorOptions,
 	}
 #endif
 
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-	/* Optional debugging check: pass plan tree through outfuncs/readfuncs */
-	{
-		char	   *str;
-		PlannedStmt *new_plan;
-
-		str = nodeToStringWithLocations(plan);
-		new_plan = stringToNodeWithLocations(str);
-		pfree(str);
-
-		/*
-		 * equal() currently does not have routines to compare Plan nodes, so
-		 * don't try to test equality here.  Perhaps fix someday?
-		 */
-#ifdef NOT_USED
-		/* This checks both outfuncs/readfuncs and the equal() routines... */
-		if (!equal(new_plan, plan))
-			elog(WARNING, "outfuncs/readfuncs failed to produce an equal plan tree");
-		else
-#endif
-			plan = new_plan;
-	}
-#endif
+	plan = writeReadParsePlanTrees(plan, false);
 
 	/*
 	 * Print plan if debugging.

@@ -1696,7 +1696,7 @@ AllocSetCheck(MemoryContext context)
 			 */
 			if (dsize != InvalidAllocSize && dsize < chsize &&
 				!sentinel_ok(chunk, ALLOC_CHUNKHDRSZ + dsize))
-				elog(WARNING, "problem in alloc set %s: detected write past chunk end in block %p, chunk %p",
+				elog(PANIC, "problem in alloc set %s: detected write past chunk end in block %p, chunk %p",
 					 name, block, chunk);
 
 			/* if chunk is allocated, disallow access to the chunk header */

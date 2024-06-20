@@ -294,38 +294,47 @@ tnr_end_field(StringInfo from, uint32 flags)
 static bool
 tnvr_VARLENA(StringInfo from, void *field, uint32 flags)
 {
-	char	  **tfield = (char **) field;
+	struct varlena **tfield = (struct varlena **) field;
 	const char *data_start;
+	char	   *vardata_tail;
 	uint32		dat_len;
 	int			len;
-	int			i;
+	int			i = 0;
 	struct varlena *data;
 
 	skip_past_next_token_character(from, '(');
 
 	data_start = read_next_token(from, &len);
-	dat_len = atoi(data_start);
+	dat_len = strtoul(data_start, NULL, 10);
 
-	Assert(len >= sizeof (struct varlena));
-
+	Assert(dat_len >= VARHDRSZ);
 	data = palloc(dat_len);
+	SET_VARSIZE(data, dat_len);
+	dat_len -= VARHDRSZ;
+	vardata_tail = VARDATA(data);
 
-	for (i = 0; i + (sizeof(uint32) - 1) < dat_len; i += sizeof(uint32))
-	{
-		uint32	value;
-		data_start = read_next_token(from, &len);
-		value = strtoul(data_start, NULL, 10);
-		memcpy(VARDATA(data) + i, &value, sizeof(uint32));
-	}
+//	for (i + (sizeof(uint32) - 1) < dat_len; i += sizeof(uint32))
+//	{
+//		uint32	value;
+//		data_start = read_next_token(from, &len);
+//		value = strtoul(data_start, NULL, 10);
+//		memcpy(vardata_tail, &value, sizeof(uint32));
+//		vardata_tail += sizeof(uint32);
+//	}
+
 	for (i = 0; i < dat_len; i++)
 	{
 		uint8	value;
 		data_start = read_next_token(from, &len);
 		value = strtoul(data_start, NULL, 10);
-		memcpy(VARDATA(data) + i, &value, sizeof(uint8));
+
+		memcpy(vardata_tail, &value, sizeof(uint8));
+		vardata_tail += sizeof(uint8);
 	}
 
-	*tfield = nullable_string(data_start, len);
+	skip_past_next_token_character(from, ')');
+
+	*tfield = data;
 	return true;
 }
 
@@ -465,6 +474,7 @@ TextScalarFieldReader(int, INT, 0, atoi)
 TextScalarFieldReader(int16, INT16, 0, atoi)
 TextScalarFieldReader(int32, INT32, 0, atoi)
 TextScalarFieldReader(long, LONG, 0, atol)
+TextScalarFieldReader(uint8, UINT8, 0, atoui)
 TextScalarFieldReader(uint16, UINT16, 0, atoui)
 TextScalarFieldReader(uint32, UINT32, 0, atoui)
 TextScalarFieldReader(uint64, UINT64, 0, atou64)
@@ -505,6 +515,7 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsfr(INT16),
 		tsfr(INT32),
 		tsfr(LONG),
+		tsfr(UINT8),
 		tsfr(UINT16),
 		tsfr(UINT32),
 		tsfr(UINT64),
@@ -525,6 +536,7 @@ const NodeReader TextNodeReader = &(NodeReaderData){
 		tsvr(INT16),
 		tsvr(INT32),
 		tsvr(LONG),
+		tsvr(UINT8),
 		tsvr(UINT16),
 		tsvr(UINT32),
 		tsvr(UINT64),
@@ -654,22 +666,33 @@ tnvw_VARLENA(StringInfo into, const void *field, uint32 flags)
 {
 	struct varlena *vlna = *(struct varlena **) field;
 	struct varlena *vlnb;
-	char		   *data;
+	const char	   *tail;
 	uint32			vl_len_;
-	int				i;
+	int				i = 0;
+
+	Assert(vlna != NULL);
 
 	vlnb = pg_detoast_datum(vlna);
 	vl_len_ = VARSIZE_ANY_EXHDR(vlnb);
-	data = VARDATA(vlnb);
 
-	appendStringInfo(into, "(%d", vl_len_ + VARHDRSZ);
+	Assert(vl_len_ >= 0);
 
-	for (i = 0; i + (sizeof(uint32) - 1) < vl_len_; i += sizeof(uint32))
-	{
-		appendStringInfo(into, " %d", *(uint32 *) (data + i));
-	}
+	appendStringInfo(into, "(%u", vl_len_ + VARHDRSZ);
+	tail = VARDATA_ANY(vlnb);
+
+//	for (i + (sizeof(uint32) - 1) < vl_len_; i += sizeof(uint32))
+//	{
+//		uint32	value;
+//		memcpy(&value, tail, sizeof(uint32));
+//		appendStringInfo(into, " %u", value);
+//		tail += sizeof(uint32);
+//	}
+
 	for (; i < vl_len_; i++)
-		appendStringInfo(into, " %d", *(data + i));
+	{
+		uint8	value = *(uint8 *) (tail++);
+		appendStringInfo(into, " %u", value);
+	}
 
 	appendStringInfoCharMacro(into, ')');
 
@@ -794,6 +817,7 @@ TextScalarFieldWriter(int, INT, 0, format("%d"))
 TextScalarFieldWriter(int16, INT16, 0, format("%d"))
 TextScalarFieldWriter(int32, INT32, 0, format("%d"))
 TextScalarFieldWriter(long, LONG, 0, format("%ld"))
+TextScalarFieldWriter(uint8, UINT8, 0, format("%u"))
 TextScalarFieldWriter(uint16, UINT16, 0, format("%u"))
 TextScalarFieldWriter(uint32, UINT32, 0, format("%u"))
 TextScalarFieldWriter(uint64, UINT64, 0, format(UINT64_FORMAT))
@@ -830,6 +854,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsfw(INT16),
 		tsfw(INT32),
 		tsfw(LONG),
+		tsfw(UINT8),
 		tsfw(UINT16),
 		tsfw(UINT32),
 		tsfw(UINT64),
@@ -850,6 +875,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 		tsvw(INT16),
 		tsvw(INT32),
 		tsvw(LONG),
+		tsvw(UINT8),
 		tsvw(UINT16),
 		tsvw(UINT32),
 		tsvw(UINT64),

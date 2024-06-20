@@ -85,7 +85,7 @@ datumGetSize(Datum value, bool typByVal, int typLen)
 			struct varlena *s = (struct varlena *) DatumGetPointer(value);
 
 			if (!PointerIsValid(s))
-				ereport(ERROR,
+				ereport(PANIC,
 						(errcode(ERRCODE_DATA_EXCEPTION),
 						 errmsg("invalid Datum pointer")));
 

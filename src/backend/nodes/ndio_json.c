@@ -239,6 +239,7 @@ JSONScalarFieldWriter(int, INT, 0, "")
 JSONScalarFieldWriter(int16, INT16, 0, "")
 JSONScalarFieldWriter(int32, INT32, 0, "")
 JSONScalarFieldWriter(long, LONG, 0, "")
+JSONScalarFieldWriter(uint16, UINT8, 0, "")
 JSONScalarFieldWriter(uint16, UINT16, 0, "")
 JSONScalarFieldWriter(uint32, UINT32, 0, "")
 JSONScalarFieldWriter(uint64, UINT64, 0, "")
@@ -274,6 +275,7 @@ const NodeWriter JSONNodeWriter = &(NodeWriterData) {
 		jsfw(INT16),
 		jsfw(INT32),
 		jsfw(LONG),
+		jsfw(UINT8),
 		jsfw(UINT16),
 		jsfw(UINT32),
 		jsfw(UINT64),
@@ -294,6 +296,7 @@ const NodeWriter JSONNodeWriter = &(NodeWriterData) {
 		jsvw(INT16),
 		jsvw(INT32),
 		jsvw(LONG),
+		jsvw(UINT8),
 		jsvw(UINT16),
 		jsvw(UINT32),
 		jsvw(UINT64),
