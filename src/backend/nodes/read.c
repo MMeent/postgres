@@ -29,6 +29,7 @@
 #include "nodes/readfuncs.h"
 #include "nodes/value.h"
 #include "varatt.h"
+#include "nodes/ndio.h"
 
 
 /* Static state for pg_strtok */
@@ -49,41 +50,42 @@ bool		restore_location_fields = false;
  * in builds with the WRITE_READ_PARSE_PLAN_TREES debugging flag set.
  */
 static void *
-stringToNodeInternal(const char *str, bool restore_loc_fields)
+stringToNodeInternal(const char *str, bool restore_loc_fields, int len)
 {
-	void	   *retval;
-	const char *save_strtok;
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-	bool		save_restore_location_fields;
-#endif
+	StringInfoData	data;
 
-	/*
-	 * We save and restore the pre-existing state of pg_strtok. This makes the
-	 * world safe for re-entrant invocation of stringToNode, without incurring
-	 * a lot of notational overhead by having to pass the next-character
-	 * pointer around through all the readfuncs.c code.
-	 */
-	save_strtok = pg_strtok_ptr;
+	initReadOnlyStringInfo(&data, unconstify(char *, str), len);
+//#ifdef WRITE_READ_PARSE_PLAN_TREES
+//	bool		save_restore_location_fields;
+//#endif
+//
+//	/*
+//	 * We save and restore the pre-existing state of pg_strtok. This makes the
+//	 * world safe for re-entrant invocation of stringToNode, without incurring
+//	 * a lot of notational overhead by having to pass the next-character
+//	 * pointer around through all the readfuncs.c code.
+//	 */
+//	save_strtok = pg_strtok_ptr;
+//
+//	pg_strtok_ptr = str;		/* point pg_strtok at the string to read */
+//
+//	/*
+//	 * If enabled, likewise save/restore the location field handling flag.
+//	 */
+//#ifdef WRITE_READ_PARSE_PLAN_TREES
+//	save_restore_location_fields = restore_location_fields;
+//	restore_location_fields = restore_loc_fields;
+//#endif
+//
+//	retval = nodeRead(NULL, 0); /* do the reading */
+//
+//	pg_strtok_ptr = save_strtok;
+//
+//#ifdef WRITE_READ_PARSE_PLAN_TREES
+//	restore_location_fields = save_restore_location_fields;
+//#endif
 
-	pg_strtok_ptr = str;		/* point pg_strtok at the string to read */
-
-	/*
-	 * If enabled, likewise save/restore the location field handling flag.
-	 */
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-	save_restore_location_fields = restore_location_fields;
-	restore_location_fields = restore_loc_fields;
-#endif
-
-	retval = nodeRead(NULL, 0); /* do the reading */
-
-	pg_strtok_ptr = save_strtok;
-
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-	restore_location_fields = save_restore_location_fields;
-#endif
-
-	return retval;
+	return ReadNode(&data, TextNodeReader, 0);
 }
 
 /*
@@ -95,36 +97,21 @@ stringToNodeInternal(const char *str, bool restore_loc_fields)
 void *
 nodeTreeToNode(NodeTree src)
 {
-	NodeTree	detoasted;
-	void	   *result;
-
 	if (src == NULL)
 		return NULL;
 
 	Assert(!VARATT_IS_EXTENDED(src));
 
-	detoasted = (NodeTree) pg_detoast_datum((struct varlena *) src);
-	result = stringToNodeInternal(VARDATA(detoasted), false);
-
-	if (detoasted != src)
-		pfree(detoasted);
-
-	return result;
+	return stringToNodeInternal(VARDATA(src), false, VARSIZE_ANY_EXHDR(src));
 }
 
 void *
 nodeTreeToNodeWithLocations(NodeTree src)
 {
-	NodeTree	detoasted;
-	void	   *result;
+	if (src == NULL)
+		return NULL;
 
-	detoasted = (NodeTree) pg_detoast_datum((struct varlena *) src);
-	result = stringToNodeInternal(VARDATA(detoasted), true);
-
-	if (detoasted != src)
-		pfree(detoasted);
-
-	return result;
+	return stringToNodeInternal(VARDATA(src), true, VARSIZE_ANY_EXHDR(src));
 }
 
 /*
@@ -133,7 +120,7 @@ nodeTreeToNodeWithLocations(NodeTree src)
 void *
 stringToNode(const char *str)
 {
-	return stringToNodeInternal(str, false);
+	return stringToNodeInternal(str, false, strlen(str));
 }
 
 #ifdef WRITE_READ_PARSE_PLAN_TREES
@@ -141,7 +128,7 @@ stringToNode(const char *str)
 void *
 stringToNodeWithLocations(const char *str)
 {
-	return stringToNodeInternal(str, true);
+	return stringToNodeInternal(str, true, strlen(str));
 }
 
 #endif

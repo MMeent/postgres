@@ -43,6 +43,8 @@ typedef enum NodeFieldType {
 #define NODEDESC_DISABLE_WRITE		0x0100
 #define NODEDESC_DISABLE_READ		0x0200
 
+#define NFD_READ_DEFAULT			0x1000
+
 typedef struct NodeDescData {
 	char	   *nd_name;
 	NodeTag		nd_nodetag;

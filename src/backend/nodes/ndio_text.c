@@ -313,16 +313,16 @@ tnvr_VARLENA(StringInfo from, void *field, uint32 flags)
 	dat_len -= VARHDRSZ;
 	vardata_tail = VARDATA(data);
 
-//	for (i + (sizeof(uint32) - 1) < dat_len; i += sizeof(uint32))
-//	{
-//		uint32	value;
-//		data_start = read_next_token(from, &len);
-//		value = strtoul(data_start, NULL, 10);
-//		memcpy(vardata_tail, &value, sizeof(uint32));
-//		vardata_tail += sizeof(uint32);
-//	}
+	for (i = 0; i + (sizeof(uint32) - 1) < dat_len; i += sizeof(uint32))
+	{
+		uint32	value;
+		data_start = read_next_token(from, &len);
+		value = strtoul(data_start, NULL, 10);
+		memcpy(vardata_tail, &value, sizeof(uint32));
+		vardata_tail += sizeof(uint32);
+	}
 
-	for (i = 0; i < dat_len; i++)
+	for (; i < dat_len; i++)
 	{
 		uint8	value;
 		data_start = read_next_token(from, &len);
@@ -350,6 +350,13 @@ tnfr_VARLENA(StringInfo from, NodeFieldDesc desc,
 	{
 		*tfield = NULL;
 		return false;
+	}
+
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = tnvr_VARLENA(from, field, flags);
+		*tfield = NULL;
+		return ret;
 	}
 
 	return tnvr_VARLENA(from, field, flags);
@@ -383,6 +390,13 @@ tnfr_CSTRING(StringInfo from, NodeFieldDesc desc,
 		return false;
 	}
 
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = tnvr_CSTRING(from, field, flags);
+		*tfield = NULL;
+		return ret;
+	}
+
 	return tnvr_CSTRING(from, field, flags);
 }
 
@@ -408,6 +422,13 @@ tnfr_NODE(StringInfo from, NodeFieldDesc desc,
 	{
 		*tfield = NULL;
 		return false;
+	}
+
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = tnvr_NODE(from, field, flags);
+		*tfield = NULL;
+		return ret;
 	}
 
 	return tnvr_NODE(from, field, flags);
@@ -438,6 +459,13 @@ tnfr_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
 	{ \
 		*tfield = type_default; \
 		return false; \
+	} \
+	\
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT)) \
+	{ \
+		bool ret = tnvr_##_uctype_(from, field, flags); \
+		*tfield = type_default; \
+		return ret; \
 	} \
 	\
 	return tnvr_##_uctype_(from, field, flags); \
@@ -662,13 +690,35 @@ tnw_end_field(StringInfo into, uint32 flags)
 }
 
 static bool
+tnvw_PARSELOC(StringInfo into, const void *field, uint32 flags)
+{
+	ParseLoc value = *(ParseLoc *) field;
+	appendStringInfo(into, "%d", value);
+	return true;
+}
+
+static bool
+tnfw_PARSELOC(StringInfo into, NodeFieldDesc desc, const void *field,
+			  uint32 flags)
+{
+	CHECK_FLD_IS_COMPATIBLE(desc);
+
+	if (*((ParseLoc *) field) == -1 || flags & ND_WRITE_IGNORE_PARSELOC)
+		return false;
+
+	appendFieldName(into, desc);
+
+	return tnvw_PARSELOC(into, field, flags);
+}
+
+static bool
 tnvw_VARLENA(StringInfo into, const void *field, uint32 flags)
 {
 	struct varlena *vlna = *(struct varlena **) field;
 	struct varlena *vlnb;
 	const char	   *tail;
 	uint32			vl_len_;
-	int				i = 0;
+	int				i;
 
 	Assert(vlna != NULL);
 
@@ -680,13 +730,13 @@ tnvw_VARLENA(StringInfo into, const void *field, uint32 flags)
 	appendStringInfo(into, "(%u", vl_len_ + VARHDRSZ);
 	tail = VARDATA_ANY(vlnb);
 
-//	for (i + (sizeof(uint32) - 1) < vl_len_; i += sizeof(uint32))
-//	{
-//		uint32	value;
-//		memcpy(&value, tail, sizeof(uint32));
-//		appendStringInfo(into, " %u", value);
-//		tail += sizeof(uint32);
-//	}
+	for (i = 0; i + (sizeof(uint32) - 1) < vl_len_; i += sizeof(uint32))
+	{
+		uint32	value;
+		memcpy(&value, tail, sizeof(uint32));
+		appendStringInfo(into, " %u", value);
+		tail += sizeof(uint32);
+	}
 
 	for (; i < vl_len_; i++)
 	{
@@ -811,7 +861,6 @@ TextScalarFieldWriter(bool, BOOL, false, writeout(outbool))
 TextScalarFieldWriter(char, CHAR, 0, writeout(outChar))
 TextScalarFieldWriter(double, DOUBLE, 0.0, writeout(outDouble))
 
-TextScalarFieldWriter(ParseLoc, PARSELOC, -1, format("%d"))
 TextScalarFieldWriter(TypMod, TYPMOD, -1, format("%d"))
 TextScalarFieldWriter(int, INT, 0, format("%d"))
 TextScalarFieldWriter(int16, INT16, 0, format("%d"))

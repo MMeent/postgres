@@ -485,6 +485,7 @@ foreach my $infile (@ARGV)
 								query_jumble_ignore
 								query_jumble_location
 								read_write_ignore
+								read_as_default
 								write_only_relids
 								write_only_nondefault_pathtarget
 								write_only_req_outer))
@@ -982,6 +983,7 @@ _read${n}(void)
 		# extract per-field attributes
 		my $array_size_field;
 		my $read_as_field;
+		my $read_as_default = 0;
 		my $read_write_ignore = 0;
 		foreach my $a (@a)
 		{
@@ -996,6 +998,10 @@ _read${n}(void)
 			elsif ($a =~ /^read_as\(([\w.]+)\)$/)
 			{
 				$read_as_field = $1;
+			}
+			elsif ($a eq 'read_as_default')
+			{
+				$read_as_default = 1;
 			}
 			elsif ($a eq 'read_write_ignore')
 			{
@@ -1392,6 +1398,12 @@ foreach my $n (@node_types)
 				push (@fld_flags, 'NODEDESC_DISABLE_WRITE');
 				push (@node_fld_flags, 'NODEDESC_DISABLE_WRITE')
 					if !(elem 'NODEDESC_DISABLE_WRITE', @node_fld_flags);
+			}
+			elsif ($a eq 'read_as_default')
+			{
+				push (@fld_flags, 'NFD_READ_DEFAULT');
+				push (@node_fld_flags, 'NFD_READ_DEFAULT')
+					if !(elem 'NFD_READ_DEFAULT', @node_fld_flags);
 			}
 		}
 

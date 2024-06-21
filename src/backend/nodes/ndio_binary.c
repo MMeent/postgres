@@ -163,18 +163,23 @@ bnfr_VARLENA(StringInfo from, NodeFieldDesc desc, void *field,
 	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
 	fldno = from->data[from->cursor];
 
-	if (fldno == desc->nfd_field_no)
-	{
-		from->cursor += sizeof(uint8);
-
-		return bnvr_VARLENA(from, field, flags);
-	}
-	else
+	if (fldno != desc->nfd_field_no)
 	{
 		Assert(fldno > desc->nfd_field_no);
 		*((char **) field) = NULL;
 		return false;
 	}
+
+	from->cursor += sizeof(uint8);
+
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = bnvr_VARLENA(from, field, flags);
+		*(struct varlena **) field = NULL;
+		return ret;
+	}
+
+	return bnvr_VARLENA(from, field, flags);
 }
 
 static bool
@@ -210,18 +215,23 @@ bnfr_CSTRING(StringInfo from, NodeFieldDesc desc,
 	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
 	fldno = from->data[from->cursor];
 
-	if (fldno == desc->nfd_field_no)
-	{
-		from->cursor += sizeof(uint8);
-
-		return bnvr_CSTRING(from, field, flags);
-	}
-	else
+	if (fldno != desc->nfd_field_no)
 	{
 		Assert(fldno > desc->nfd_field_no);
 		*((char **) field) = NULL;
 		return false;
 	}
+
+	from->cursor += sizeof(uint8);
+
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = bnvr_CSTRING(from, field, flags);
+		*(struct varlena **) field = NULL;
+		return ret;
+	}
+
+	return bnvr_CSTRING(from, field, flags);
 }
 
 static bool
@@ -244,18 +254,62 @@ bnfr_NODE(StringInfo from, NodeFieldDesc desc,
 
 	fldno = from->data[from->cursor];
 
-	if (fldno == desc->nfd_field_no)
+	if (fldno != desc->nfd_field_no)
 	{
-		from->cursor += sizeof(uint8);
-
-		return bnvr_NODE(from, field, flags);
-	}
-	else
-	{
-		*(Node **) field = NULL;
-
+		Assert(fldno > desc->nfd_field_no);
+		*((char **) field) = NULL;
 		return false;
 	}
+
+	from->cursor += sizeof(uint8);
+
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = bnvr_NODE(from, field, flags);
+		*(struct varlena **) field = NULL;
+		return ret;
+	}
+
+	return bnvr_NODE(from, field, flags);
+}
+
+static bool
+bnvr_PARSELOC(StringInfo from, void *field, uint32 flags)
+{
+	CHECK_CAN_READ(from, sizeof(ParseLoc),
+				   "Ran out of data whilst reading " "ParseLoc" " value");
+
+	memcpy(field, from->data + from->cursor, sizeof(ParseLoc));
+	from->cursor += sizeof(ParseLoc);
+	return true;
+}
+
+static bool
+bnfr_PARSELOC(StringInfo from, NodeFieldDesc desc, void *field, uint32 flags)
+{
+	uint8 fldno;
+
+	CHECK_FLD_IS_COMPATIBLE(desc);
+	CHECK_CAN_READ_FLD(from, sizeof(uint8), desc);
+
+	fldno = from->data[from->cursor];
+
+	if (fldno != desc->nfd_field_no)
+	{
+		Assert(fldno > desc->nfd_field_no);
+		*((ParseLoc *) field) = -1;
+		return false;
+	}
+
+	from->cursor += sizeof(uint8);
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT))
+	{
+		bool ret = bnvr_PARSELOC(from, field, flags);
+		*((ParseLoc *) field) = -1;
+		return ret;
+	}
+
+	return bnvr_PARSELOC(from, field, flags);
 }
 
 #define BinaryScalarFieldReader(_type_, _uctype_, type_default) \
@@ -280,17 +334,22 @@ bnfr_##_uctype_(StringInfo from, NodeFieldDesc desc, void *field, \
 	\
 	fldno = from->data[from->cursor]; \
 	\
-	if (fldno == desc->nfd_field_no) \
-	{ \
-		from->cursor += sizeof(uint8); \
-		return bnvr_##_uctype_(from, field, flags); \
-	} \
-	else \
+	if (fldno != desc->nfd_field_no) \
 	{ \
 		Assert(fldno > desc->nfd_field_no); \
 		*((_type_ *) field) = (type_default); \
 		return false; \
 	} \
+	from->cursor += sizeof(uint8); \
+	\
+	if (unlikely(desc->nfd_flags & NFD_READ_DEFAULT)) \
+	{ \
+		bool ret = bnvr_##_uctype_(from, field, flags); \
+		*((_type_ *) field) = (type_default); \
+		return ret; \
+	} \
+	\
+	return bnvr_##_uctype_(from, field, flags); \
 }
 
 static bool
@@ -299,21 +358,17 @@ bnfr_unimplemented(StringInfo from, NodeFieldDesc desc,
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	Assert(false);
-
-	elog(PANIC, "Node field %s's type %02x deserialization is unimplemented",
+	elog(ERROR, "Node field %s's type %02x deserialization is unimplemented",
 		 desc->nfd_name, desc->nfd_type);
 }
 
 static bool
 bnvr_unimplemented(StringInfo from, void *field, uint32 flags)
 {
-	Assert(false);
-	elog(PANIC, "Node value deserialization is unimplemented for this type");
+	elog(ERROR, "Node value deserialization is unimplemented for this type");
 }
 
 BinaryScalarFieldReader(bool, BOOL, false)
-BinaryScalarFieldReader(ParseLoc, PARSELOC, -1)
 BinaryScalarFieldReader(TypMod, TYPMOD, -1)
 BinaryScalarFieldReader(int, INT, 0)
 BinaryScalarFieldReader(int16, INT16, 0)
@@ -551,6 +606,25 @@ bnfw_unimplemented(StringInfo into, NodeFieldDesc desc, const void *field,
 	return bnvw_unimplemented(into, field, flags);
 }
 
+static bool
+bnvw_PARSELOC(StringInfo into, const void *field, uint32 flags)
+{
+	appendBinaryStringInfo(into, field, sizeof(ParseLoc));
+	return true;
+}
+
+static bool
+bnfw_PARSELOC(StringInfo into, NodeFieldDesc desc, const void *field,
+			  uint32 flags)
+{
+	CHECK_FLD_IS_COMPATIBLE(desc);
+	if (*(ParseLoc *) field == -1 || (flags & ND_WRITE_IGNORE_PARSELOC))
+		return false;
+
+	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
+	return bnvw_PARSELOC(into, field, flags);
+}
+
 #define BinaryScalarFieldWriter(_type_, _uctype_, type_default) \
 static bool \
 bnvw_##_uctype_(StringInfo into, const void *field, uint32 flags) \
@@ -572,7 +646,6 @@ bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 }
 
 BinaryScalarFieldWriter(bool, BOOL, false)
-BinaryScalarFieldWriter(ParseLoc, PARSELOC, -1)
 BinaryScalarFieldWriter(TypMod, TYPMOD, -1)
 BinaryScalarFieldWriter(int, INT, 0)
 BinaryScalarFieldWriter(int16, INT16, 0)

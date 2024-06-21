@@ -2667,6 +2667,7 @@ pg_get_expr_ext(PG_FUNCTION_ARGS)
 static text *
 pg_get_expr_worker(text *expr, Oid relid, int prettyFlags)
 {
+	NodeTree	detoasted;
 	Node	   *node;
 	Node	   *tst;
 	Relids		relids;
@@ -2674,8 +2675,13 @@ pg_get_expr_worker(text *expr, Oid relid, int prettyFlags)
 	Relation	rel = NULL;
 	char	   *str;
 
+	detoasted = pg_detoast_datum(expr);
+
 	/* Convert expression from text (really NodeTree) to node tree */
-	node = (Node *) nodeTreeToNode(expr);
+	node = (Node *) nodeTreeToNode(detoasted);
+
+	if (detoasted != expr)
+		pfree(detoasted);
 
 	/*
 	 * Throw error if the input is a querytree rather than an expression tree.

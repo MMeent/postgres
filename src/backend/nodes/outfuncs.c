@@ -782,6 +782,11 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 				duration_binary,
 				duration_newtext,
 				duration_oldtext;
+	uint32		flags = 0;
+
+	if (!write_loc_fields)
+		flags |= ND_WRITE_IGNORE_PARSELOC;
+
 	initStringInfo(&str);
 	INSTR_TIME_SET_ZERO(duration_binary);
 	INSTR_TIME_SET_ZERO(duration_newtext);
@@ -791,7 +796,7 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 	write_location_fields = write_loc_fields;
 
 	INSTR_TIME_SET_CURRENT(start);
-	WriteNode(&str, obj, BinaryNodeWriter, 0);
+	WriteNode(&str, obj, BinaryNodeWriter, flags);
 	INSTR_TIME_SET_CURRENT(end);
 	INSTR_TIME_ACCUM_DIFF(duration_binary, end, start);
 
@@ -799,19 +804,20 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 	resetStringInfo(&str);
 
 	INSTR_TIME_SET_CURRENT(start);
-	WriteNode(&str, obj, TextNodeWriter, 0);
-	INSTR_TIME_SET_CURRENT(end);
-	INSTR_TIME_ACCUM_DIFF(duration_newtext, end, start);
-
-	len_newtext = str.len;
-	resetStringInfo(&str);
-
-	INSTR_TIME_SET_CURRENT(start);
 	/* see stringinfo.h for an explanation of this maneuver */
 	outNode(&str, obj);
 	INSTR_TIME_SET_CURRENT(end);
 	INSTR_TIME_ACCUM_DIFF(duration_oldtext, end, start);
+
 	len_oldtext = str.len;
+	resetStringInfo(&str);
+
+	INSTR_TIME_SET_CURRENT(start);
+	WriteNode(&str, obj, TextNodeWriter, flags);
+	INSTR_TIME_SET_CURRENT(end);
+	INSTR_TIME_ACCUM_DIFF(duration_newtext, end, start);
+
+	len_newtext = str.len;
 
 	ereport(DEBUG1, errhidecontext(true), errhidestmt(true),
 			errmsg_internal("ot/nt/bin: written=%u/%u/%u timing_us="
@@ -873,7 +879,7 @@ writeReadParsePlanTrees(const void *node, bool validate)
 	WriteNode(&holder, (Node *) node, TextNodeWriter, 0);
 	new_node = ReadNode(&holder, TextNodeReader, 0);
 
-	if (validate && !assertEqual(new_node, node))
+	if (validate && !equal(new_node, node))
 	{
 		StringInfoData	compare;
 		initStringInfo(&compare);
@@ -891,7 +897,7 @@ writeReadParsePlanTrees(const void *node, bool validate)
 	WriteNode(&holder, (Node *) node, BinaryNodeWriter, 0);
 	new_node = ReadNode(&holder, BinaryNodeReader, 0);
 
-	if (validate && !assertEqual(new_node, node))
+	if (validate && !equal(new_node, node))
 	{
 		StringInfoData	compare;
 		initStringInfo(&compare);
@@ -910,7 +916,7 @@ writeReadParsePlanTrees(const void *node, bool validate)
 	pfree(str);
 
 	/* This checks both outfuncs/readfuncs and the equal() routines... */
-	if (validate && !assertEqual(new_node, node))
+	if (validate && !equal(new_node, node))
 		elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
 	else
 		node = new_node;

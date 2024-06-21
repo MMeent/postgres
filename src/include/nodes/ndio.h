@@ -8,6 +8,8 @@
 #include "lib/stringinfo.h"
 #include "nodes/nodedesc.h"
 
+#define ND_WRITE_NO_SKIP_DEFAULTS	0x01
+#define ND_WRITE_IGNORE_PARSELOC	0x02
 
 typedef bool (*WriteTypedValue)(StringInfo into, const void *field,
 								uint32 flags);
@@ -46,8 +48,7 @@ extern bool WriteNode(StringInfo into, const Node *node, NodeWriter writer,
 typedef bool (*ReadTypedValue)(StringInfo from, void *field, uint32 flags);
 typedef bool (*ReadTypedField)(StringInfo from, NodeFieldDesc desc, void *field, uint32 flags);
 
-#define ND_WRITE_NO_SKIP_DEFAULTS	1
-#define ND_READ_ARRAY_PREALLOCATED	1
+#define ND_READ_ARRAY_PREALLOCATED	0x01
 
 typedef struct NodeReaderData {
 	/* 
