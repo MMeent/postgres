@@ -6637,6 +6637,14 @@
   proname => 'text', prorettype => 'text', proargtypes => 'bool',
   prosrc => 'booltext' },
 
+# pg_node_tree 
+{ oid => '4642', descr => 'convert pg_node_tree to text',
+  proname => 'pg_node_tree_to_text', provolatile => 's', prorettype => 'text',
+  proargtypes => 'pg_node_tree', prosrc => 'pg_node_tree_to_text' },
+{ oid => '4643', descr => 'convert pg_node_tree to json',
+  proname => 'pg_node_tree_to_json', provolatile => 's', prorettype => 'json',
+  proargtypes => 'pg_node_tree', prosrc => 'pg_node_tree_to_json' },
+
 # Aggregates (moved here from pg_aggregate for 7.3)
 
 { oid => '2100',

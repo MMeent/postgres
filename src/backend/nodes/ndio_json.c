@@ -23,10 +23,16 @@
 #include "nodes/plannodes.h"
 #include "nodes/replnodes.h"
 #include "varatt.h"
+#include "common/shortest_dec.h"
 
 /*---
  * JSON Node Writer
  *		NodeWriter implementation for a JSON-based node serialization format.
+ *
+ * Nodes are json objects with the "_type" type tag, 
+ * Arrays are JSON arrays,
+ * VARLENA is encoded as {"varlen": <len_bytes>, "vardata": "0x<hexbytes>"}
+ * 
  */
 
 #define AppendText(into, literal) \
@@ -35,7 +41,7 @@
 static void
 jnw_start_node(StringInfo into, NodeDesc desc, uint32 flags)
 {
-	AppendText(into, "{\"type\": \"");
+	AppendText(into, "{\"_type\": \"");
 	appendBinaryStringInfo(into, desc->nd_name, desc->nd_namelen);
 	appendStringInfoCharMacro(into, '"');
 }
@@ -90,6 +96,7 @@ jnvw_VARLENA(StringInfo into, const void *value, uint32 flags)
 		AppendText(into, "null");
 		return true;
 	}
+
 	exhdr = VARSIZE_ANY_EXHDR(varlen2);
 
 	AppendText(into, "{\"varsize\": ");
@@ -224,7 +231,8 @@ static bool \
 jnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 				uint32 flags) \
 { \
-	if (*(_type_ *) field == (type_default)) \
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
+		*(_type_ *) field == (type_default)) \
 		return false; \
 	\
 	jnw_start_field(into, desc, flags); \
@@ -232,20 +240,61 @@ jnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 	return jnvw_##_uctype_(into, field, flags); \
 }
 
-JSONScalarFieldWriter(bool, BOOL, false, "")
-JSONScalarFieldWriter(ParseLoc, PARSELOC, -1, "")
-JSONScalarFieldWriter(TypMod, TYPMOD, -1, "")
-JSONScalarFieldWriter(int, INT, 0, "")
-JSONScalarFieldWriter(int16, INT16, 0, "")
-JSONScalarFieldWriter(int32, INT32, 0, "")
-JSONScalarFieldWriter(long, LONG, 0, "")
-JSONScalarFieldWriter(uint16, UINT8, 0, "")
-JSONScalarFieldWriter(uint16, UINT16, 0, "")
-JSONScalarFieldWriter(uint32, UINT32, 0, "")
-JSONScalarFieldWriter(uint64, UINT64, 0, "")
-JSONScalarFieldWriter(Oid, OID, 0, "")
-JSONScalarFieldWriter(char, CHAR, 0, "")
-JSONScalarFieldWriter(double, DOUBLE, 0.0, "")
+#define outbool(into, value) \
+	appendStringInfoString((into), (value) ? "true" : "false")
+
+	/*
+ * Convert a double value, attempting to ensure the value is preserved exactly.
+ */
+static void
+outDouble(StringInfo str, double d)
+{
+	char		buf[DOUBLE_SHORTEST_DECIMAL_LEN];
+
+	double_to_shortest_decimal_buf(d, buf);
+	appendStringInfoString(str, buf);
+}
+
+/*
+ * Convert one char.  Goes through outToken() so that special characters are
+ * escaped.
+ */
+static void
+outChar(StringInfo str, char c)
+{
+	char		in[2];
+
+	/* Traditionally, we've represented \0 as <>, so keep doing that */
+	if (c == '\0')
+	{
+		appendStringInfoString(str, "\"\\0\"");
+		return;
+	}
+
+	in[0] = c;
+	in[1] = '\0';
+
+	jnvw_CSTRING(str, in, 0);
+}
+
+#define format(fmt) appendStringInfo(into, fmt, value)
+#define writeout(fnc) fnc(into, value)
+
+JSONScalarFieldWriter(bool, BOOL, false, writeout(outbool))
+JSONScalarFieldWriter(char, CHAR, 0, writeout(outChar))
+JSONScalarFieldWriter(double, DOUBLE, 0.0, writeout(outDouble))
+
+JSONScalarFieldWriter(ParseLoc, PARSELOC, -1, formmat("%d"))
+JSONScalarFieldWriter(TypMod, TYPMOD, -1, format("%d"))
+JSONScalarFieldWriter(int, INT, 0, format("%d"))
+JSONScalarFieldWriter(int16, INT16, 0, format("%d"))
+JSONScalarFieldWriter(int32, INT32, 0, format("%d"))
+JSONScalarFieldWriter(long, LONG, 0, format("%ld"))
+JSONScalarFieldWriter(uint16, UINT8, 0, format("%u"))
+JSONScalarFieldWriter(uint16, UINT16, 0, format("%u"))
+JSONScalarFieldWriter(uint32, UINT32, 0, format("%u"))
+JSONScalarFieldWriter(uint64, UINT64, 0, format(UINT64_FORMAT))
+JSONScalarFieldWriter(Oid, OID, 0, format("%u"))
 
 #define jsfw(_type_) \
 	[NFT_##_type_] = jnfw_##_type_

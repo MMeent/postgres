@@ -80,6 +80,7 @@ OBJS = \
 	partitionfuncs.o \
 	pg_locale.o \
 	pg_lsn.o \
+	pg_node_tree.o \
 	pg_upgrade_support.o \
 	pgstatfuncs.o \
 	pseudorandomfuncs.o \

@@ -535,7 +535,8 @@ bnfw_VARLENA(StringInfo into, NodeFieldDesc desc, const void *field,
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (*(char **) field == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
+		*(const char **) field == NULL)
 		return false;
 
 	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
@@ -560,7 +561,8 @@ bnfw_CSTRING(StringInfo into, NodeFieldDesc desc, const void *field,
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (*(char **) field == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
+		*(const char **) field == NULL)
 		return false;
 
 	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
@@ -584,7 +586,7 @@ bnfw_NODE(StringInfo into, NodeFieldDesc desc, const void *field,
 
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (node == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && node == NULL)
 		return false;
 
 	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
@@ -618,7 +620,9 @@ bnfw_PARSELOC(StringInfo into, NodeFieldDesc desc, const void *field,
 			  uint32 flags)
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
-	if (*(ParseLoc *) field == -1 || (flags & ND_WRITE_IGNORE_PARSELOC))
+	if ((!(flags & ND_WRITE_NO_SKIP_DEFAULTS) &&
+		 *(const ParseLoc *) field == -1) ||
+		(flags & ND_WRITE_IGNORE_PARSELOC))
 		return false;
 
 	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8));
@@ -638,7 +642,8 @@ bnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 { \
 	CHECK_FLD_IS_COMPATIBLE(desc); \
 	\
-	if (*(_type_ *) field == (type_default)) \
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
+		*(const _type_ *) field == (type_default)) \
 		return false; \
 	\
 	appendBinaryStringInfo(into, &desc->nfd_field_no, sizeof(uint8)); \

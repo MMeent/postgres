@@ -703,7 +703,8 @@ tnfw_PARSELOC(StringInfo into, NodeFieldDesc desc, const void *field,
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (*((ParseLoc *) field) == -1 || flags & ND_WRITE_IGNORE_PARSELOC)
+	if ((*((ParseLoc *) field) == -1 && !(flags & ND_WRITE_NO_SKIP_DEFAULTS)) ||
+		flags & ND_WRITE_IGNORE_PARSELOC)
 		return false;
 
 	appendFieldName(into, desc);
@@ -758,7 +759,8 @@ tnfw_VARLENA(StringInfo into, NodeFieldDesc desc, const void *field,
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if ((*(const void **) field) == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) &&
+		(*(const void **) field) == NULL)
 		return false;
 
 	appendFieldName(into, desc);
@@ -783,7 +785,8 @@ tnfw_CSTRING(StringInfo into, NodeFieldDesc desc, const void *field,
 
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if ((*(void **) field) == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) &&
+		(*(const void **) field) == NULL)
 		return false;
 
 	appendFieldName(into, desc);
@@ -805,7 +808,8 @@ tnfw_NODE(StringInfo into, NodeFieldDesc desc, const void *field,
 {
 	CHECK_FLD_IS_COMPATIBLE(desc);
 
-	if (*(Node **) field == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) &&
+		*(const Node **) field == NULL)
 		return false;
 
 	appendFieldName(into, desc);
@@ -845,7 +849,8 @@ tnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 { \
 	CHECK_FLD_IS_COMPATIBLE(desc); \
 	\
-	if (*(_type_ *) field == (type_default)) \
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
+		*(_type_ *) field == (type_default)) \
 		return false; \
 	\
 	appendFieldName(into, desc); \

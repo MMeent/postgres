@@ -326,9 +326,13 @@
 { castsource => 'int4', casttarget => 'char', castfunc => 'char(int4)',
   castcontext => 'e', castmethod => 'f' },
 
-# pg_node_tree can be coerced to, but not from, text
-{ castsource => 'pg_node_tree', casttarget => 'text', castfunc => '0',
-  castcontext => 'i', castmethod => 'b' },
+# pg_node_tree can be cast to, but not from, text and json
+{ castsource => 'pg_node_tree', casttarget => 'text',
+  castfunc => 'pg_node_tree_to_text(pg_node_tree)', castcontext => 'i',
+  castmethod => 'f' },
+{ castsource => 'pg_node_tree', casttarget => 'json',
+  castfunc => 'pg_node_tree_to_json(pg_node_tree)', castcontext => 'i',
+  castmethod => 'f' },
 
 # pg_ndistinct can be coerced to, but not from, bytea and text
 { castsource => 'pg_ndistinct', casttarget => 'bytea', castfunc => '0',
