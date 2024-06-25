@@ -26,7 +26,7 @@
 #include "nodes/pg_list.h"
 #include "utils/datum.h"
 
-/* State flag that determines how nodeToStringInternal() should treat location fields */
+/* State flag that determines how nodeToNodeTreeInternal() should treat location fields */
 static bool write_location_fields = false;
 
 static void outChar(StringInfo str, char c);
@@ -534,8 +534,8 @@ outNode(StringInfo str, const void *obj)
 }
 
 /*
- * nodeToString -
- *	   returns the ascii representation of the Node as a palloc'd string
+ * nodeToNodeTree -
+ *	   returns the binary representation of the Node as a palloc'd varlena
  *
  * write_loc_fields determines whether location fields are output with their
  * actual value rather than -1.  The actual value can be useful for debugging,
@@ -543,7 +543,7 @@ outNode(StringInfo str, const void *obj)
  * string is no longer available.
  */
 static NodeTree
-nodeToStringInternal(const void *obj, bool write_loc_fields)
+nodeToNodeTreeInternal(const void *obj, bool write_loc_fields)
 {
 	StringInfoData str;
 	bool		save_write_location_fields;
@@ -622,13 +622,13 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 NodeTree
 nodeToNodeTree(const void *obj)
 {
-	return nodeToStringInternal(obj, false);
+	return nodeToNodeTreeInternal(obj, false);
 }
 
 NodeTree
 nodeToNodeTreeWithLocations(const void *obj)
 {
-	return nodeToStringInternal(obj, true);
+	return nodeToNodeTreeInternal(obj, true);
 }
 
 
@@ -684,7 +684,12 @@ writeReadParsePlanTrees(const void *node, bool validate)
 char *
 nodeToStringWithLocations(const void *obj)
 {
-	return text_to_cstring(nodeToStringInternal(obj, true));
+	StringInfoData	data;
+	text		   *value;
+	initStringInfo(&data);
+	WriteNode(&data, obj, TextNodeWriter, ND_WRITE_NO_SKIP_DEFAULTS);
+
+	return data.data;
 }
 
 
@@ -699,6 +704,6 @@ bmsToString(const Bitmapset *bms)
 
 	/* see stringinfo.h for an explanation of this maneuver */
 	initStringInfo(&str);
-	outBitmapset(&str, bms);
+	WriteNode(&str, (const Node *) bms, TextNodeWriter, 0);
 	return str.data;
 }
