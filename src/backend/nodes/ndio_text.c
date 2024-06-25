@@ -837,7 +837,7 @@ tnvw_unimplemented(StringInfo into, const void *field,
 static bool \
 tnvw_##_uctype_(StringInfo into, const void *field, uint32 flags) \
 { \
-	_type_		value = *(_type_ *) field; \
+	_type_		value = *(const _type_ *) field; \
 	\
 	write_value; \
 	\
@@ -850,7 +850,7 @@ tnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 	CHECK_FLD_IS_COMPATIBLE(desc); \
 	\
 	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
-		*(_type_ *) field == (type_default)) \
+		*(const _type_ *) field == (type_default)) \
 		return false; \
 	\
 	appendFieldName(into, desc); \
@@ -896,7 +896,7 @@ const NodeWriter TextNodeWriter = &(NodeWriterData){
 	.nw_write_null = tnw_write_null,
 	.nw_start_field = tnw_start_field,
 	.nw_start_array = tnw_start_array,
-	.nw_field_entry_separator = tnw_field_entry_separator,
+	.nw_array_entry_separator = tnw_field_entry_separator,
 	.nw_end_array = tnw_end_array,
 	.nw_end_field = tnw_end_field,
 	.nw_fld_writers = {

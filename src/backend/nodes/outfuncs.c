@@ -648,54 +648,6 @@ _outA_Expr_OLD(StringInfo str, const A_Expr *node)
 }
 
 static void
-_outInteger(StringInfo str, const Integer *node)
-{
-	appendStringInfo(str, "%d", node->ival);
-}
-
-static void
-_outFloat(StringInfo str, const Float *node)
-{
-	/*
-	 * We assume the value is a valid numeric literal and so does not need
-	 * quoting.
-	 */
-	appendStringInfoString(str, node->fval);
-}
-
-static void
-_outBoolean(StringInfo str, const Boolean *node)
-{
-	appendStringInfoString(str, node->boolval ? "true" : "false");
-}
-
-static void
-_outString(StringInfo str, const String *node)
-{
-	/*
-	 * We use outToken to provide escaping of the string's content, but we
-	 * don't want it to convert an empty string to '""', because we're putting
-	 * double quotes around the string already.
-	 */
-	appendStringInfoChar(str, '"');
-	if (node->sval[0] != '\0')
-		outToken(str, node->sval);
-	appendStringInfoChar(str, '"');
-}
-
-static void
-_outBitString(StringInfo str, const BitString *node)
-{
-	/*
-	 * The lexer will always produce a string starting with 'b' or 'x'.  There
-	 * might be characters following that that need escaping, but outToken
-	 * won't escape the 'b' or 'x'.  This is relied on by nodeTokenType.
-	 */
-	Assert(node->bsval[0] == 'b' || node->bsval[0] == 'x');
-	outToken(str, node->bsval);
-}
-
-static void
 _outA_Const(StringInfo str, const A_Const *node)
 {
 	WRITE_NODE_TYPE("A_CONST");
@@ -769,8 +721,8 @@ outNode(StringInfo str, const void *obj)
  * but for most uses, the actual value is not useful, since the original query
  * string is no longer available.
  */
-static char *
-nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
+static NodeTree
+nodeToStringInternal(const void *obj, bool write_loc_fields)
 {
 	StringInfoData str;
 	bool		save_write_location_fields;
@@ -788,6 +740,11 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 		flags |= ND_WRITE_IGNORE_PARSELOC;
 
 	initStringInfo(&str);
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+
 	INSTR_TIME_SET_ZERO(duration_binary);
 	INSTR_TIME_SET_ZERO(duration_newtext);
 	INSTR_TIME_SET_ZERO(duration_oldtext);
@@ -802,6 +759,10 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 
 	len_binary = str.len;
 	resetStringInfo(&str);
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
 
 	INSTR_TIME_SET_CURRENT(start);
 	/* see stringinfo.h for an explanation of this maneuver */
@@ -811,6 +772,10 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 
 	len_oldtext = str.len;
 	resetStringInfo(&str);
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
+	appendStringInfoCharMacro(&str, '\0');
 
 	INSTR_TIME_SET_CURRENT(start);
 	WriteNode(&str, obj, TextNodeWriter, flags);
@@ -818,6 +783,7 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 	INSTR_TIME_ACCUM_DIFF(duration_newtext, end, start);
 
 	len_newtext = str.len;
+	SET_VARSIZE(str.data, str.len);
 
 	ereport(DEBUG1, errhidecontext(true), errhidestmt(true),
 			errmsg_internal("ot/nt/bin: written=%u/%u/%u timing_us="
@@ -829,40 +795,19 @@ nodeToStringInternal(const void *obj, bool write_loc_fields, int *len)
 
 	write_location_fields = save_write_location_fields;
 
-	if (len)
-		*len = str.len;
-
-	return str.data;
+	return (NodeTree) str.data;
 }
 
 NodeTree
 nodeToNodeTree(const void *obj)
 {
-	int			len;
-	char	   *data;
-	NodeTree	result;
-
-	data = nodeToStringInternal(obj, false, &len);
-	result = (NodeTree) cstring_to_text_with_len(data, len + 1);
-
-	pfree(data);
-
-	return result;
+	return nodeToStringInternal(obj, false);
 }
 
 NodeTree
 nodeToNodeTreeWithLocations(const void *obj)
 {
-	int			len;
-	char	   *data;
-	NodeTree	result;
-
-	data = nodeToStringInternal(obj, true, &len);
-	result = (NodeTree) cstring_to_text_with_len(data, len + 1);
-
-	pfree(data);
-
-	return result;
+	return nodeToStringInternal(obj, true);
 }
 
 
@@ -871,7 +816,6 @@ void *
 writeReadParsePlanTrees(const void *node, bool validate)
 {
 	StringInfoData holder;
-	char	   *str;
 	void	   *new_node;
 
 	initStringInfo(&holder);
@@ -897,6 +841,7 @@ writeReadParsePlanTrees(const void *node, bool validate)
 	WriteNode(&holder, (Node *) node, BinaryNodeWriter, 0);
 	new_node = ReadNode(&holder, BinaryNodeReader, 0);
 
+	/* This checks both outfuncs/readfuncs and the equal() routines... */
 	if (validate && !equal(new_node, node))
 	{
 		StringInfoData	compare;
@@ -910,35 +855,15 @@ writeReadParsePlanTrees(const void *node, bool validate)
 	else
 		node = new_node;
 
-	str = nodeToStringWithLocations(node);
-	new_node = stringToNodeWithLocations(str);
-
-	pfree(str);
-
-	/* This checks both outfuncs/readfuncs and the equal() routines... */
-	if (validate && !equal(new_node, node))
-		elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
-	else
-		node = new_node;
-
 	return (void *) node;
 }
 #endif
 
 
-/*
- * Externally visible entry points
- */
-char *
-nodeToString(const void *obj)
-{
-	return nodeToStringInternal(obj, false, NULL);
-}
-
 char *
 nodeToStringWithLocations(const void *obj)
 {
-	return nodeToStringInternal(obj, true, NULL);
+	return text_to_cstring(nodeToStringInternal(obj, true));
 }
 
 

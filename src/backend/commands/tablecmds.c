@@ -11622,7 +11622,7 @@ ATExecValidateConstraint(List **wqueue, Relation rel, char *constrName,
 			ListCell   *child;
 			NewConstraint *newcon;
 			Datum		val;
-			char	   *conbin;
+			NodeTree	conbin;
 
 			/*
 			 * If we're recursing, the parent has already done this, so skip
@@ -11677,8 +11677,8 @@ ATExecValidateConstraint(List **wqueue, Relation rel, char *constrName,
 
 			val = SysCacheGetAttrNotNull(CONSTROID, tuple,
 										 Anum_pg_constraint_conbin);
-			conbin = TextDatumGetCString(val);
-			newcon->qual = (Node *) stringToNode(conbin);
+			conbin = DatumGetNodeTree(val);
+			newcon->qual = (Node *) nodeTreeToNode(conbin);
 
 			/* Find or create work queue entry for this table */
 			tab = ATGetQueueEntry(wqueue, rel);
@@ -18861,7 +18861,7 @@ CloneRowTriggersToPartition(Relation parent, Relation partition)
 							 RelationGetDescr(pg_trigger), &isnull);
 		if (!isnull)
 		{
-			qual = stringToNode(TextDatumGetCString(value));
+			qual = nodeTreeToNode(DatumGetNodeTree(value));
 			qual = (Node *) map_partition_varattnos((List *) qual, PRS2_OLD_VARNO,
 													partition, parent);
 			qual = (Node *) map_partition_varattnos((List *) qual, PRS2_NEW_VARNO,

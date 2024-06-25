@@ -275,8 +275,8 @@ WriteArrayValue(StringInfo into, NodeWriter writer, NodeFieldType type,
 
 	for (int j = 0; j < arraylen; j++)
 	{
-		if (j > 0 && writer->nw_field_entry_separator)
-			writer->nw_field_entry_separator(into, flags);
+		if (j > 0 && writer->nw_array_entry_separator)
+			writer->nw_array_entry_separator(into, flags);
 		fvw(into, fld + j * val_len, flags);
 	}
 
@@ -480,9 +480,6 @@ WriteNodeListTyped(StringInfo into, const Node *node, NodeWriter writer,
 	/* Note: We use only unconditional writes here */
 	fldw(into, &listIoTooling[0], &list->length, flags);
 
-	if (writer->nw_field_entry_separator)
-		writer->nw_field_entry_separator(into, flags);
-
 	/* List entries, always Node for normal Lists */
 	vw = writer->nw_val_writers[type];
 	writer->nw_start_field(into, &listIoTooling[1], flags);
@@ -490,8 +487,8 @@ WriteNodeListTyped(StringInfo into, const Node *node, NodeWriter writer,
 
 	for (int i = 0; i < list->length; i++)
 	{
-		if (i > 0 && writer->nw_field_entry_separator)
-			writer->nw_field_entry_separator(into, flags);
+		if (i > 0 && writer->nw_array_entry_separator)
+			writer->nw_array_entry_separator(into, flags);
 
 		vw(into, list_nth_cell(list, i), flags);
 	}
@@ -595,181 +592,6 @@ Node *
 ReadNodeXidList(StringInfo from, NodeReader reader, uint32 flags)
 {
 	return ReadNodeListTyped(from, reader, flags, NFT_UINT32, T_XidList);
-}
-
-bool
-WriteNodeInteger(StringInfo into, const Node *node, NodeWriter writer,
-				 uint32 flags)
-{
-	NodeDesc	desc = GetNodeDesc(T_Integer);
-	const Integer *intNode = castConstNode(Integer, node);
-
-	writer->nw_start_node(into, desc, flags);
-
-	if (writer->nw_field_entry_separator)
-		writer->nw_field_entry_separator(into, flags);
-
-	writer->nw_val_writers[NFT_INT](into, &intNode->ival, flags);
-
-	writer->nw_finish_node(into, desc, -1, flags);
-
-	return true;
-}
-
-Node *
-ReadNodeInteger(StringInfo from, NodeReader reader, uint32 flags)
-{
-	Integer	   *node = makeNode(Integer);
-	NodeDesc		desc = GetNodeDesc(T_Integer);
-
-	if (reader->nr_array_value_separator)
-		reader->nr_array_value_separator(from, flags);
-
-	reader->nr_val_readers[NFT_INT](from, &node->ival, flags);
-
-	reader->nr_finish_node(from, desc, -1, flags);
-
-	return (Node *) node;
-}
-
-bool
-WriteNodeFloat(StringInfo into, const Node *node, NodeWriter writer,
-			   uint32 flags)
-{
-	NodeDesc	desc = GetNodeDesc(T_Float);
-	const Float *floatNode = castConstNode(Float, node);
-
-	writer->nw_start_node(into, desc, flags);
-
-	if (writer->nw_field_entry_separator)
-		writer->nw_field_entry_separator(into, flags);
-
-	writer->nw_val_writers[NFT_CSTRING](into, &floatNode->fval, flags);
-
-	writer->nw_finish_node(into, desc, -1, flags);
-
-	return true;
-}
-
-Node *
-ReadNodeFloat(StringInfo from, NodeReader reader, uint32 flags)
-{
-	Float	   *node = makeNode(Float);
-	NodeDesc		desc = GetNodeDesc(T_Float);
-
-	if (reader->nr_array_value_separator)
-		reader->nr_array_value_separator(from, flags);
-
-	reader->nr_val_readers[NFT_CSTRING](from, &node->fval, flags);
-
-	reader->nr_finish_node(from, desc, -1, flags);
-
-	return (Node *) node;
-}
-
-bool
-WriteNodeBoolean(StringInfo into, const Node *node, NodeWriter writer,
-				 uint32 flags)
-{
-	NodeDesc	desc = GetNodeDesc(T_Boolean);
-	const Boolean *boolNode = castConstNode(Boolean, node);
-
-	writer->nw_start_node(into, desc, flags);
-
-	if (writer->nw_field_entry_separator)
-		writer->nw_field_entry_separator(into, flags);
-
-	writer->nw_val_writers[NFT_BOOL](into, &boolNode->boolval, flags);
-
-	writer->nw_finish_node(into, desc, -1, flags);
-
-	return true;
-}
-
-Node *
-ReadNodeBoolean(StringInfo from, NodeReader reader, uint32 flags)
-{
-	Boolean	   *node = makeNode(Boolean);
-	NodeDesc		desc = GetNodeDesc(T_Boolean);
-
-	if (reader->nr_array_value_separator)
-		reader->nr_array_value_separator(from, flags);
-
-	reader->nr_val_readers[NFT_BOOL](from, &node->boolval, flags);
-
-	reader->nr_finish_node(from, desc, -1, flags);
-
-	return (Node *) node;
-}
-
-bool
-WriteNodeString(StringInfo into, const Node *node, NodeWriter writer,
-				uint32 flags)
-{
-	NodeDesc	desc = GetNodeDesc(T_String);
-	const String *stringNode = castConstNode(String, node);
-
-	Assert(PointerIsValid(stringNode->sval));
-
-	writer->nw_start_node(into, desc, flags);
-	if (writer->nw_field_entry_separator)
-		writer->nw_field_entry_separator(into, flags);
-	writer->nw_val_writers[NFT_CSTRING](into, &stringNode->sval, flags);
-
-	writer->nw_finish_node(into, desc, -1, flags);
-
-	return true;
-}
-
-Node *
-ReadNodeString(StringInfo from, NodeReader reader, uint32 flags)
-{
-	String	   *node = makeNode(String);
-	NodeDesc		desc = GetNodeDesc(T_String);
-
-	if (reader->nr_array_value_separator)
-		reader->nr_array_value_separator(from, flags);
-
-	reader->nr_val_readers[NFT_CSTRING](from, &node->sval, flags);
-
-	reader->nr_finish_node(from, desc, -1, flags);
-
-	return (Node *) node;
-}
-
-bool
-WriteNodeBitString(StringInfo into, const Node *node, NodeWriter writer,
-				   uint32 flags)
-{
-	NodeDesc	desc = GetNodeDesc(T_BitString);
-	const BitString *bsNode = castConstNode(BitString, node);
-
-	Assert(PointerIsValid(bsNode->bsval));
-
-	writer->nw_start_node(into, desc, flags);
-	if (writer->nw_field_entry_separator)
-		writer->nw_field_entry_separator(into, flags);
-	writer->nw_val_writers[NFT_CSTRING](into, &bsNode->bsval, flags);
-
-	writer->nw_finish_node(into, desc, -1, flags);
-
-	return true;
-}
-
-Node *
-ReadNodeBitString(StringInfo from, NodeReader reader, uint32 flags)
-{
-	BitString	   *node = makeNode(BitString);
-	NodeDesc		desc = GetNodeDesc(T_BitString);
-
-	if (reader->nr_array_value_separator)
-		reader->nr_array_value_separator(from, flags);
-
-	reader->nr_val_readers[NFT_CSTRING](from, &node->bsval, flags);
-
-	reader->nr_finish_node(from, desc, -1, flags);
-
-	return (Node *) node;
 }
 
 #define WRITE_NORMAL_FIELD(num, name) \

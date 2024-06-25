@@ -50,7 +50,15 @@ pg_node_tree_out(PG_FUNCTION_ARGS)
 	NodeTree		tree;
 	StringInfoData	data;
 
-	tmp = AllocSetContextCreate(fcinfo->flinfo->fn_mcxt, "tmp", ALLOCSET_DEFAULT_SIZES);
+	if (!fcinfo->flinfo->fn_extra)
+	{
+		fcinfo->flinfo->fn_extra
+			= AllocSetContextCreate(fcinfo->flinfo->fn_mcxt,
+									"pg_node_tree_out",
+									ALLOCSET_DEFAULT_SIZES);
+	}
+	tmp = fcinfo->flinfo->fn_extra;
+
 	prev = MemoryContextSwitchTo(tmp);
 
 	tree = DatumGetNodeTree(arg);
@@ -61,8 +69,7 @@ pg_node_tree_out(PG_FUNCTION_ARGS)
 	initStringInfo(&data);
 
 	WriteNode(&data, tmpNode, TextNodeWriter, ND_WRITE_NO_SKIP_DEFAULTS);
-
-	MemoryContextDelete(tmp);
+	MemoryContextResetOnly(tmp);
 
 	PG_RETURN_CSTRING(data.data);
 }
@@ -95,8 +102,7 @@ pg_node_tree_send_ext(PG_FUNCTION_ARGS)
 	pq_begintypsend(&data);
 
 	WriteNode(&data, tmpNode, TextNodeWriter, ND_WRITE_NO_SKIP_DEFAULTS);
-
-	MemoryContextDelete(tmp);
+	MemoryContextResetOnly(tmp);
 
 	PG_RETURN_BYTEA_P(pq_endtypsend(&data));
 }
@@ -140,7 +146,8 @@ pg_node_tree_to_json(PG_FUNCTION_ARGS)
 
 	pq_begintypsend(&data);
 	WriteNode(&data, tmpNode, JSONNodeWriter, ND_WRITE_NO_SKIP_DEFAULTS);
-	MemoryContextReset(tmp);
+
+	MemoryContextResetOnly(tmp);
 
 	PG_RETURN_BYTEA_P(pq_endtypsend(&data));
 }

@@ -26,7 +26,7 @@ typedef struct NodeWriterData {
 	void	(*nw_start_field)(StringInfo into, NodeFieldDesc desc, uint32 flags);
 	void	(*nw_start_array)(StringInfo into, uint32 flags);
 	/* optional */
-	void	(*nw_field_entry_separator)(StringInfo into, uint32 flags);
+	void	(*nw_array_entry_separator)(StringInfo into, uint32 flags);
 	void	(*nw_end_array)(StringInfo into, uint32 flags);
 	void	(*nw_end_field)(StringInfo into, uint32 flags);
 	/* mostly required */

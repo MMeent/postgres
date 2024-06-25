@@ -574,11 +574,10 @@
   proname => 'pg_node_tree_out', prorettype => 'cstring',
   proargtypes => 'pg_node_tree', prosrc => 'pg_node_tree_out' },
 { oid => '197', descr => 'I/O',
-  proname => 'pg_node_tree_recv', provolatile => 's',
-  prorettype => 'pg_node_tree', proargtypes => 'internal',
-  prosrc => 'pg_node_tree_recv' },
+  proname => 'pg_node_tree_recv', prorettype => 'pg_node_tree',
+  proargtypes => 'internal', prosrc => 'pg_node_tree_recv' },
 { oid => '198', descr => 'I/O',
-  proname => 'pg_node_tree_send', provolatile => 's', prorettype => 'bytea',
+  proname => 'pg_node_tree_send', prorettype => 'bytea',
   proargtypes => 'pg_node_tree', prosrc => 'pg_node_tree_send' },
 
 # OIDS 200 - 299
@@ -6639,10 +6638,10 @@
 
 # pg_node_tree 
 { oid => '4642', descr => 'convert pg_node_tree to text',
-  proname => 'pg_node_tree_to_text', provolatile => 's', prorettype => 'text',
+  proname => 'pg_node_tree_to_text', prorettype => 'text',
   proargtypes => 'pg_node_tree', prosrc => 'pg_node_tree_to_text' },
 { oid => '4643', descr => 'convert pg_node_tree to json',
-  proname => 'pg_node_tree_to_json', provolatile => 's', prorettype => 'json',
+  proname => 'pg_node_tree_to_json', prorettype => 'json',
   proargtypes => 'pg_node_tree', prosrc => 'pg_node_tree_to_json' },
 
 # Aggregates (moved here from pg_aggregate for 7.3)

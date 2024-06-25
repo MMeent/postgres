@@ -204,7 +204,6 @@ extern void outBitmapset(struct StringInfoData *str,
 						 const struct Bitmapset *bms);
 extern void outDatum(struct StringInfoData *str, uintptr_t value,
 					 int typlen, bool typbyval);
-extern char *nodeToString(const void *obj);
 extern char *nodeToStringWithLocations(const void *obj);
 extern char *bmsToString(const struct Bitmapset *bms);
 
@@ -217,10 +216,6 @@ extern void *writeReadParsePlanTrees(const void *node, bool validate);
 /*
  * nodes/{readfuncs.c,read.c}
  */
-extern void *stringToNode(const char *str);
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-extern void *stringToNodeWithLocations(const char *str);
-#endif
 extern struct Bitmapset *readBitmapset(void);
 extern uintptr_t readDatum(bool typbyval);
 extern bool *readBoolCols(int numCols);

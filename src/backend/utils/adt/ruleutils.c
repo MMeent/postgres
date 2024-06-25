@@ -5398,6 +5398,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	if (list_length(actions) != 1)
 	{
+		Assert(false);
 		/* keep output buffer empty and leave */
 		return;
 	}
@@ -5405,8 +5406,9 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	query = (Query *) linitial(actions);
 
 	if (ev_type != '1' || !is_instead ||
-		strcmp(VARDATA(ev_qual), "<>") != 0 ||
-		query->commandType != CMD_SELECT)
+		query->commandType != CMD_SELECT ||
+		VARSIZE_ANY_EXHDR(ev_qual) != 2 ||
+		strncmp(VARDATA(ev_qual), "<>", 2) != 0)
 	{
 		/* keep output buffer empty and leave */
 		return;

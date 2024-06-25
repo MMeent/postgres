@@ -114,25 +114,6 @@ nodeTreeToNodeWithLocations(NodeTree src)
 	return stringToNodeInternal(VARDATA(src), true, VARSIZE_ANY_EXHDR(src));
 }
 
-/*
- * Externally visible entry points
- */
-void *
-stringToNode(const char *str)
-{
-	return stringToNodeInternal(str, false, strlen(str));
-}
-
-#ifdef WRITE_READ_PARSE_PLAN_TREES
-
-void *
-stringToNodeWithLocations(const char *str)
-{
-	return stringToNodeInternal(str, true, strlen(str));
-}
-
-#endif
-
 
 /*****************************************************************************
  *

@@ -30,8 +30,7 @@
  *		NodeWriter implementation for a JSON-based node serialization format.
  *
  * Nodes are json objects with the "_type" type tag, 
- * Arrays are JSON arrays,
- * VARLENA is encoded as {"varlen": <len_bytes>, "vardata": "0x<hexbytes>"}
+ * VARLENA value is encoded as {"varlen": <len_bytes>, "vardata": "0x<hexbytes>"}
  * 
  */
 
@@ -88,23 +87,24 @@ static bool
 jnvw_VARLENA(StringInfo into, const void *value, uint32 flags)
 {
 	struct varlena *varlen1 = *(struct varlena **) value;
-	struct varlena *varlen2 = pg_detoast_datum(varlen1);
+	char	   *data;
 	int32		exhdr;
 
-	if (varlen2 == NULL)
+	if (varlen1 == NULL)
 	{
 		AppendText(into, "null");
 		return true;
 	}
 
-	exhdr = VARSIZE_ANY_EXHDR(varlen2);
+	exhdr = VARSIZE_ANY_EXHDR(varlen1);
+	data = VARDATA(varlen1);
 
 	AppendText(into, "{\"varsize\": ");
 	appendStringInfo(into, "%d", exhdr);
 	AppendText(into, ", \"vardata\": \"0x");
 	for (int i = 0; i < exhdr; i++)
 	{
-		appendStringInfo(into, "%02x", VARDATA(varlen2)[i]);
+		appendStringInfo(into, "%02x", (unsigned char) data[i]);
 	}
 
 	appendStringInfoCharMacro(into, '"');
@@ -117,7 +117,8 @@ static bool
 jnfw_VARLENA(StringInfo into, NodeFieldDesc desc, const void *field,
 			 uint32 flags)
 {
-	if (*(char **) field == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS)
+		&& *(char **) field == NULL)
 		return false;
 
 	jnw_start_field(into, desc, flags);
@@ -129,6 +130,12 @@ static bool
 jnvw_CSTRING(StringInfo into, const void *value, uint32 flags)
 {
 	char	   *cstr = *(char **) value;
+	
+	if (cstr == NULL)
+	{
+		appendStringInfoString(into, "null");
+		return true;
+	}
 
 	appendStringInfoCharMacro(into, '"');
 
@@ -165,7 +172,10 @@ jnvw_CSTRING(StringInfo into, const void *value, uint32 flags)
 			appendStringInfoCharMacro(into, '\\');
 		}
 		appendStringInfoCharMacro(into, *cstr);
+
+		cstr++;
 	}
+
 	appendStringInfoCharMacro(into, '"');
 
 	return true;
@@ -175,7 +185,8 @@ static bool
 jnfw_CSTRING(StringInfo into, NodeFieldDesc desc, const void *field,
 			 uint32 flags)
 {
-	if (*(char **) field == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS)
+		&& *(const char **) field == NULL)
 		return false;
 
 	jnw_start_field(into, desc, flags);
@@ -197,7 +208,7 @@ jnfw_NODE(StringInfo into, NodeFieldDesc desc, const void *field,
 {
 	Node	   *node = *(Node **) field;
 
-	if (node == NULL)
+	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && node == NULL)
 		return false;
 
 	jnw_start_field(into, desc, flags);
@@ -219,11 +230,13 @@ jnfw_unimplemented(StringInfo into, NodeFieldDesc desc, const void *field,
 	return jnvw_unimplemented(into, field, flags);
 }
 
-#define JSONScalarFieldWriter(_type_, _uctype_, type_default, seras) \
+#define JSONScalarFieldWriter(_type_, _uctype_, type_default, write_value) \
 static bool \
 jnvw_##_uctype_(StringInfo into, const void *field, uint32 flags) \
 { \
-	appendBinaryStringInfo(into, field, sizeof(_type_)); \
+	_type_		value = *(const _type_ *) field; \
+	\
+	write_value; \
 	\
 	return true; \
 } \
@@ -232,7 +245,7 @@ jnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 				uint32 flags) \
 { \
 	if (!(flags & ND_WRITE_NO_SKIP_DEFAULTS) && \
-		*(_type_ *) field == (type_default)) \
+		*(const _type_ *) field == (type_default)) \
 		return false; \
 	\
 	jnw_start_field(into, desc, flags); \
@@ -240,14 +253,14 @@ jnfw_##_uctype_(StringInfo into, NodeFieldDesc desc, const void *field, \
 	return jnvw_##_uctype_(into, field, flags); \
 }
 
-#define outbool(into, value) \
+#define outbool(into, value, flags) \
 	appendStringInfoString((into), (value) ? "true" : "false")
 
 	/*
  * Convert a double value, attempting to ensure the value is preserved exactly.
  */
 static void
-outDouble(StringInfo str, double d)
+outDouble(StringInfo str, double d, uint32 flags)
 {
 	char		buf[DOUBLE_SHORTEST_DECIMAL_LEN];
 
@@ -260,31 +273,33 @@ outDouble(StringInfo str, double d)
  * escaped.
  */
 static void
-outChar(StringInfo str, char c)
+outChar(StringInfo str, char c, uint32 flags)
 {
 	char		in[2];
+	char	   *ref;
 
-	/* Traditionally, we've represented \0 as <>, so keep doing that */
 	if (c == '\0')
 	{
-		appendStringInfoString(str, "\"\\0\"");
+		/* we don't support "\0" nor "\u0000", so NULL it is */
+		appendStringInfoString(str, "null");
 		return;
 	}
 
 	in[0] = c;
 	in[1] = '\0';
+	ref = &in[0];
 
-	jnvw_CSTRING(str, in, 0);
+	jnvw_CSTRING(str, &ref, 0);
 }
 
 #define format(fmt) appendStringInfo(into, fmt, value)
-#define writeout(fnc) fnc(into, value)
+#define writeout(fnc) fnc(into, value, flags)
 
 JSONScalarFieldWriter(bool, BOOL, false, writeout(outbool))
 JSONScalarFieldWriter(char, CHAR, 0, writeout(outChar))
 JSONScalarFieldWriter(double, DOUBLE, 0.0, writeout(outDouble))
 
-JSONScalarFieldWriter(ParseLoc, PARSELOC, -1, formmat("%d"))
+JSONScalarFieldWriter(ParseLoc, PARSELOC, -1, format("%d"))
 JSONScalarFieldWriter(TypMod, TYPMOD, -1, format("%d"))
 JSONScalarFieldWriter(int, INT, 0, format("%d"))
 JSONScalarFieldWriter(int16, INT16, 0, format("%d"))
@@ -313,7 +328,7 @@ const NodeWriter JSONNodeWriter = &(NodeWriterData) {
 	.nw_start_array = jnw_start_array,
 	.nw_write_null = jnw_write_null,
 	.nw_end_array = jnw_end_array,
-	.nw_field_entry_separator = jnw_field_entry_separator,
+	.nw_array_entry_separator = jnw_field_entry_separator,
 	.nw_end_field = NULL,
 	.nw_fld_writers = {
 		jsfw_unimpl(UNDEFINED),
