@@ -5408,7 +5408,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	if (ev_type != '1' || !is_instead ||
 		query->commandType != CMD_SELECT ||
 		VARSIZE_ANY_EXHDR(ev_qual) != 2 ||
-		strncmp(VARDATA(ev_qual), "<>", 2) != 0)
+		memcmp(VARDATA(ev_qual), "\0\0", 2) != 0)
 	{
 		/* keep output buffer empty and leave */
 		return;

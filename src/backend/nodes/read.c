@@ -85,7 +85,7 @@ stringToNodeInternal(const char *str, bool restore_loc_fields, int len)
 //	restore_location_fields = save_restore_location_fields;
 //#endif
 
-	return ReadNode(&data, TextNodeReader, 0);
+	return ReadNode(&data, BinaryNodeReader, 0);
 }
 
 /*

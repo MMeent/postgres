@@ -326,12 +326,15 @@
 { castsource => 'int4', casttarget => 'char', castfunc => 'char(int4)',
   castcontext => 'e', castmethod => 'f' },
 
-# pg_node_tree can be cast to, but not from, text and json
+# pg_node_tree can be cast to, but not from, bytea, text and json
+# of those casts, only bytea is a valid binary cast.
+{ castsource => 'pg_node_tree', casttarget => 'bytea', castfunc => '0',
+  castcontext => 'a', castmethod => 'b' },
 { castsource => 'pg_node_tree', casttarget => 'text',
   castfunc => 'pg_node_tree_to_text(pg_node_tree)', castcontext => 'i',
   castmethod => 'f' },
 { castsource => 'pg_node_tree', casttarget => 'json',
-  castfunc => 'pg_node_tree_to_json(pg_node_tree)', castcontext => 'i',
+  castfunc => 'pg_node_tree_to_json(pg_node_tree)', castcontext => 'a',
   castmethod => 'f' },
 
 # pg_ndistinct can be coerced to, but not from, bytea and text

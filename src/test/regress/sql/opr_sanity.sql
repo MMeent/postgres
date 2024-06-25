@@ -499,6 +499,9 @@ WHERE c.castfunc = p.oid AND
 -- because those are binary-compatible while the reverse goes through
 -- texttoxml(), which does an XML syntax check.
 
+-- As of 17, this finds the cast from pg_node_tree to bytea, which we
+-- intentionally do not provide a reverse pathway for.
+
 SELECT castsource::regtype, casttarget::regtype, castfunc, castcontext
 FROM pg_cast c
 WHERE c.castmethod = 'b' AND

@@ -572,13 +572,13 @@ nodeToNodeTreeInternal(const void *obj, bool write_loc_fields)
 
 	save_write_location_fields = write_location_fields;
 	write_location_fields = write_loc_fields;
-
 	INSTR_TIME_SET_CURRENT(start);
-	WriteNode(&str, obj, BinaryNodeWriter, flags);
+	WriteNode(&str, obj, TextNodeWriter, flags);
 	INSTR_TIME_SET_CURRENT(end);
-	INSTR_TIME_ACCUM_DIFF(duration_binary, end, start);
+	INSTR_TIME_ACCUM_DIFF(duration_newtext, end, start);
 
-	len_binary = str.len;
+	len_newtext = str.len;
+
 	resetStringInfo(&str);
 	appendStringInfoCharMacro(&str, '\0');
 	appendStringInfoCharMacro(&str, '\0');
@@ -599,11 +599,11 @@ nodeToNodeTreeInternal(const void *obj, bool write_loc_fields)
 	appendStringInfoCharMacro(&str, '\0');
 
 	INSTR_TIME_SET_CURRENT(start);
-	WriteNode(&str, obj, TextNodeWriter, flags);
+	WriteNode(&str, obj, BinaryNodeWriter, flags);
 	INSTR_TIME_SET_CURRENT(end);
-	INSTR_TIME_ACCUM_DIFF(duration_newtext, end, start);
+	INSTR_TIME_ACCUM_DIFF(duration_binary, end, start);
 
-	len_newtext = str.len;
+	len_binary = str.len;
 	SET_VARSIZE(str.data, str.len);
 
 	ereport(DEBUG1, errhidecontext(true), errhidestmt(true),
@@ -685,7 +685,7 @@ char *
 nodeToStringWithLocations(const void *obj)
 {
 	StringInfoData	data;
-	text		   *value;
+
 	initStringInfo(&data);
 	WriteNode(&data, obj, TextNodeWriter, ND_WRITE_NO_SKIP_DEFAULTS);
 
