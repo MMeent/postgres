@@ -1084,7 +1084,7 @@ load_domaintype_info(TypeCacheEntry *typentry)
 			Form_pg_constraint c = (Form_pg_constraint) GETSTRUCT(conTup);
 			Datum		val;
 			bool		isNull;
-			char	   *constring;
+			NodeTree	conTree;
 			Expr	   *check_expr;
 			DomainConstraintState *r;
 
@@ -1100,7 +1100,7 @@ load_domaintype_info(TypeCacheEntry *typentry)
 					 NameStr(typTup->typname), NameStr(c->conname));
 
 			/* Convert conbin to C string in caller context */
-			constring = TextDatumGetCString(val);
+			conTree = DatumGetNodeTree(val);
 
 			/* Create the DomainConstraintCache object and context if needed */
 			if (dcc == NULL)
@@ -1120,7 +1120,7 @@ load_domaintype_info(TypeCacheEntry *typentry)
 			/* Create node trees in DomainConstraintCache's context */
 			oldcxt = MemoryContextSwitchTo(dcc->dccContext);
 
-			check_expr = (Expr *) stringToNode(constring);
+			check_expr = (Expr *) nodeTreeToNode(conTree);
 
 			/*
 			 * Plan the expression, since ExecInitExpr will expect that.

@@ -996,7 +996,7 @@ pgoutput_row_filter_init(PGOutputData *data, List *publications,
 				continue;
 
 			foreach(lc, rfnodes[idx])
-				filters = lappend(filters, stringToNode((char *) lfirst(lc)));
+				filters = lappend(filters, nodeTreeToNode((NodeTree) lfirst(lc)));
 
 			/* combine the row filter and cache the ExprState */
 			rfnode = make_orclause(filters);

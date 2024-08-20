@@ -2471,7 +2471,7 @@ get_typdefault(Oid typid)
 	if (!isNull)
 	{
 		/* We have an expression default */
-		expr = stringToNode(TextDatumGetCString(datum));
+		expr = nodeTreeToNode(DatumGetNodeTree(datum));
 	}
 	else
 	{

@@ -1747,7 +1747,7 @@ ExecRelCheck(ResultRelInfo *resultRelInfo,
 		{
 			Expr	   *checkconstr;
 
-			checkconstr = stringToNode(check[i].ccbin);
+			checkconstr = nodeTreeToNode(check[i].ccbin);
 			resultRelInfo->ri_ConstraintExprs[i] =
 				ExecPrepareExpr(checkconstr, estate);
 		}

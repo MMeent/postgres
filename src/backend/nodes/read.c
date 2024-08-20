@@ -46,7 +46,7 @@ bool		restore_location_fields = false;
  * in builds with DEBUG_NODE_TESTS_ENABLED defined.
  */
 static void *
-stringToNodeInternal(const char *str, bool restore_loc_fields)
+stringToNodeInternal(NodeTree nodeTree, bool restore_loc_fields)
 {
 	void	   *retval;
 	const char *save_strtok;
@@ -62,7 +62,7 @@ stringToNodeInternal(const char *str, bool restore_loc_fields)
 	 */
 	save_strtok = pg_strtok_ptr;
 
-	pg_strtok_ptr = str;		/* point pg_strtok at the string to read */
+	pg_strtok_ptr = nodeTree;		/* point pg_strtok at the string to read */
 
 	/*
 	 * If enabled, likewise save/restore the location field handling flag.
@@ -87,17 +87,17 @@ stringToNodeInternal(const char *str, bool restore_loc_fields)
  * Externally visible entry points
  */
 void *
-stringToNode(const char *str)
+nodeTreeToNode(NodeTree nodeTree)
 {
-	return stringToNodeInternal(str, false);
+	return stringToNodeInternal(nodeTree, false);
 }
 
 #ifdef DEBUG_NODE_TESTS_ENABLED
 
 void *
-stringToNodeWithLocations(const char *str)
+nodeTreeToNodeWithLocations(NodeTree nodeTree)
 {
-	return stringToNodeInternal(str, true);
+	return stringToNodeInternal(nodeTree, true);
 }
 
 #endif

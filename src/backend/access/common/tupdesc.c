@@ -345,7 +345,7 @@ FreeTupleDesc(TupleDesc tupdesc)
 			AttrDefault *attrdef = tupdesc->constr->defval;
 
 			for (i = tupdesc->constr->num_defval - 1; i >= 0; i--)
-				pfree(attrdef[i].adbin);
+				pfree(unconstify(char *, attrdef[i].adbin));
 			pfree(attrdef);
 		}
 		if (tupdesc->constr->missing)
@@ -367,7 +367,7 @@ FreeTupleDesc(TupleDesc tupdesc)
 			for (i = tupdesc->constr->num_check - 1; i >= 0; i--)
 			{
 				pfree(check[i].ccname);
-				pfree(check[i].ccbin);
+				pfree(unconstify(char *, check[i].ccbin));
 			}
 			pfree(check);
 		}
@@ -908,7 +908,7 @@ TupleDescGetDefault(TupleDesc tupdesc, AttrNumber attnum)
 		{
 			if (attrdef[i].adnum == attnum)
 			{
-				result = stringToNode(attrdef[i].adbin);
+				result = nodeTreeToNode(attrdef[i].adbin);
 				break;
 			}
 		}

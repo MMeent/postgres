@@ -472,11 +472,11 @@ CreateStatistics(CreateStatsStmt *stmt)
 	/* convert the expressions (if any) to a text datum */
 	if (stxexprs != NIL)
 	{
-		char	   *exprsString;
+		NodeTree	exprsTree;
 
-		exprsString = nodeToString(stxexprs);
-		exprsDatum = CStringGetTextDatum(exprsString);
-		pfree(exprsString);
+		exprsTree = nodeToNodeTree(stxexprs);
+		exprsDatum = NodeTreeGetDatum(exprsTree);
+		pfree(unconstify(char *, exprsTree));
 	}
 	else
 		exprsDatum = (Datum) 0;

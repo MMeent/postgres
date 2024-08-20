@@ -1055,7 +1055,7 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 
 		appendStringInfoString(&buf, "WHEN (");
 
-		qual = stringToNode(TextDatumGetCString(value));
+		qual = nodeTreeToNode(DatumGetNodeTree(value));
 
 		relkind = get_rel_relkind(trigrec->tgrelid);
 
@@ -1337,13 +1337,13 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 	if (!heap_attisnull(ht_idx, Anum_pg_index_indexprs, NULL))
 	{
 		Datum		exprsDatum;
-		char	   *exprsString;
+		NodeTree	exprsTree;
 
 		exprsDatum = SysCacheGetAttrNotNull(INDEXRELID, ht_idx,
 											Anum_pg_index_indexprs);
-		exprsString = TextDatumGetCString(exprsDatum);
-		indexprs = (List *) stringToNode(exprsString);
-		pfree(exprsString);
+		exprsTree = DatumGetNodeTree(exprsDatum);
+		indexprs = (List *) nodeTreeToNode(exprsTree);
+		pfree(unconstify(char *, exprsTree));
 	}
 	else
 		indexprs = NIL;
@@ -1532,14 +1532,14 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 		{
 			Node	   *node;
 			Datum		predDatum;
-			char	   *predString;
+			NodeTree	predTree;
 
 			/* Convert text string to node tree */
 			predDatum = SysCacheGetAttrNotNull(INDEXRELID, ht_idx,
 											   Anum_pg_index_indpred);
-			predString = TextDatumGetCString(predDatum);
-			node = (Node *) stringToNode(predString);
-			pfree(predString);
+			predTree = DatumGetNodeTree(predDatum);
+			node = (Node *) nodeTreeToNode(predTree);
+			pfree(unconstify(char *, predTree));
 
 			/* Deparse */
 			str = deparse_expression_pretty(node, context, false, false,
@@ -1677,13 +1677,13 @@ pg_get_statisticsobj_worker(Oid statextid, bool columns_only, bool missing_ok)
 	if (has_exprs)
 	{
 		Datum		exprsDatum;
-		char	   *exprsString;
+		NodeTree	exprsTree;
 
 		exprsDatum = SysCacheGetAttrNotNull(STATEXTOID, statexttup,
 											Anum_pg_statistic_ext_stxexprs);
-		exprsString = TextDatumGetCString(exprsDatum);
-		exprs = (List *) stringToNode(exprsString);
-		pfree(exprsString);
+		exprsTree = DatumGetNodeTree(exprsDatum);
+		exprs = (List *) nodeTreeToNode(exprsTree);
+		pfree(unconstify(char *, exprsTree));
 	}
 	else
 		exprs = NIL;
@@ -1829,7 +1829,7 @@ pg_get_statisticsobjdef_expressions(PG_FUNCTION_ARGS)
 	ListCell   *lc;
 	List	   *exprs = NIL;
 	bool		has_exprs;
-	char	   *tmp;
+	NodeTree	tmp;
 	ArrayBuildState *astate = NULL;
 
 	statexttup = SearchSysCache1(STATEXTOID, ObjectIdGetDatum(statextid));
@@ -1854,9 +1854,9 @@ pg_get_statisticsobjdef_expressions(PG_FUNCTION_ARGS)
 	 */
 	datum = SysCacheGetAttrNotNull(STATEXTOID, statexttup,
 								   Anum_pg_statistic_ext_stxexprs);
-	tmp = TextDatumGetCString(datum);
-	exprs = (List *) stringToNode(tmp);
-	pfree(tmp);
+	tmp = DatumGetNodeTree(datum);
+	exprs = (List *) nodeTreeToNode(tmp);
+	pfree(unconstify(char *, tmp));
 
 	context = deparse_context_for(get_relation_name(statextrec->stxrelid),
 								  statextrec->stxrelid);
@@ -1964,18 +1964,18 @@ pg_get_partkeydef_worker(Oid relid, int prettyFlags,
 	if (!heap_attisnull(tuple, Anum_pg_partitioned_table_partexprs, NULL))
 	{
 		Datum		exprsDatum;
-		char	   *exprsString;
+		NodeTree	exprsTree;
 
 		exprsDatum = SysCacheGetAttrNotNull(PARTRELID, tuple,
 											Anum_pg_partitioned_table_partexprs);
-		exprsString = TextDatumGetCString(exprsDatum);
-		partexprs = (List *) stringToNode(exprsString);
+		exprsTree = DatumGetNodeTree(exprsDatum);
+		partexprs = (List *) nodeTreeToNode(exprsTree);
 
 		if (!IsA(partexprs, List))
 			elog(ERROR, "unexpected node type found in partexprs: %d",
 				 (int) nodeTag(partexprs));
 
-		pfree(exprsString);
+		pfree(unconstify(char *, exprsTree));
 	}
 	else
 		partexprs = NIL;
@@ -2458,7 +2458,6 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 		case CONSTRAINT_CHECK:
 			{
 				Datum		val;
-				char	   *conbin;
 				char	   *consrc;
 				Node	   *expr;
 				List	   *context;
@@ -2467,8 +2466,7 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 				val = SysCacheGetAttrNotNull(CONSTROID, tup,
 											 Anum_pg_constraint_conbin);
 
-				conbin = TextDatumGetCString(val);
-				expr = stringToNode(conbin);
+				expr = nodeTreeToNode(DatumGetNodeTree(val));
 
 				/* Set up deparsing context for Var nodes in constraint */
 				if (conForm->conrelid != InvalidOid)
@@ -2674,7 +2672,7 @@ pg_get_expr_worker(text *expr, Oid relid, int prettyFlags)
 	exprstr = text_to_cstring(expr);
 
 	/* Convert expression to node tree */
-	node = (Node *) stringToNode(exprstr);
+	node = (Node *) nodeTreeToNode(exprstr);
 
 	pfree(exprstr);
 
@@ -3278,11 +3276,11 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 										 &isnull);
 		if (!isnull)
 		{
-			char	   *str;
+			NodeTree tree;
 
-			str = TextDatumGetCString(proargdefaults);
-			argdefaults = castNode(List, stringToNode(str));
-			pfree(str);
+			tree = DatumGetNodeTree(proargdefaults);
+			argdefaults = castNode(List, nodeTreeToNode(tree));
+			pfree(unconstify(char *, tree));
 			nextargdefault = list_head(argdefaults);
 			/* nlackdefaults counts only *input* arguments lacking defaults */
 			nlackdefaults = proc->pronargs - list_length(argdefaults);
@@ -3449,6 +3447,7 @@ pg_get_function_arg_default(PG_FUNCTION_ARGS)
 	int			i;
 	List	   *argdefaults;
 	Node	   *node;
+	NodeTree	nodeTree;
 	char	   *str;
 	int			nth_inputarg;
 	Datum		proargdefaults;
@@ -3480,9 +3479,9 @@ pg_get_function_arg_default(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 
-	str = TextDatumGetCString(proargdefaults);
-	argdefaults = castNode(List, stringToNode(str));
-	pfree(str);
+	nodeTree = DatumGetNodeTree(proargdefaults);
+	argdefaults = castNode(List, nodeTreeToNode(nodeTree));
+	pfree(unconstify(char *, nodeTree));
 
 	proc = (Form_pg_proc) GETSTRUCT(proctup);
 
@@ -3523,7 +3522,7 @@ print_function_sqlbody(StringInfo buf, HeapTuple proctup)
 	dpns.argnames = argnames;
 
 	tmp = SysCacheGetAttrNotNull(PROCOID, proctup, Anum_pg_proc_prosqlbody);
-	n = stringToNode(TextDatumGetCString(tmp));
+	n = nodeTreeToNode(DatumGetNodeTree(tmp));
 
 	if (IsA(n, List))
 	{
@@ -5160,8 +5159,8 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	char		ev_type;
 	Oid			ev_class;
 	bool		is_instead;
-	char	   *ev_qual;
-	char	   *ev_action;
+	NodeTree	ev_qual;
+	NodeTree	ev_action;
 	List	   *actions;
 	Relation	ev_relation;
 	TupleDesc	viewResultDesc = NULL;
@@ -5199,7 +5198,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	fno = SPI_fnumber(rulettc, "ev_action");
 	ev_action = SPI_getvalue(ruletup, rulettc, fno);
 	Assert(ev_action != NULL);
-	actions = (List *) stringToNode(ev_action);
+	actions = (List *) nodeTreeToNode(ev_action);
 	if (actions == NIL)
 		elog(ERROR, "invalid empty ev_action list");
 
@@ -5262,7 +5261,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 			appendStringInfoString(buf, "\n  ");
 		appendStringInfoString(buf, " WHERE ");
 
-		qual = stringToNode(ev_qual);
+		qual = nodeTreeToNode(ev_qual);
 
 		/*
 		 * We need to make a context for recognizing any Vars in the qual
@@ -5349,8 +5348,8 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	char		ev_type;
 	Oid			ev_class;
 	bool		is_instead;
-	char	   *ev_qual;
-	char	   *ev_action;
+	NodeTree	ev_qual;
+	NodeTree	ev_action;
 	List	   *actions;
 	Relation	ev_relation;
 	int			fno;
@@ -5382,7 +5381,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	fno = SPI_fnumber(rulettc, "ev_action");
 	ev_action = SPI_getvalue(ruletup, rulettc, fno);
 	Assert(ev_action != NULL);
-	actions = (List *) stringToNode(ev_action);
+	actions = (List *) nodeTreeToNode(ev_action);
 
 	if (list_length(actions) != 1)
 	{

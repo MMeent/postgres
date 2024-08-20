@@ -599,11 +599,11 @@ UpdateIndexRelation(Oid indexoid,
 	 */
 	if (indexInfo->ii_Expressions != NIL)
 	{
-		char	   *exprsString;
+		NodeTree	exprsTree;
 
-		exprsString = nodeToString(indexInfo->ii_Expressions);
-		exprsDatum = CStringGetTextDatum(exprsString);
-		pfree(exprsString);
+		exprsTree = nodeToNodeTree(indexInfo->ii_Expressions);
+		exprsDatum = NodeTreeGetDatum(exprsTree);
+		pfree(unconstify(char *, exprsTree));
 	}
 	else
 		exprsDatum = (Datum) 0;
@@ -614,11 +614,11 @@ UpdateIndexRelation(Oid indexoid,
 	 */
 	if (indexInfo->ii_Predicate != NIL)
 	{
-		char	   *predString;
+		NodeTree	predTree;
 
-		predString = nodeToString(make_ands_explicit(indexInfo->ii_Predicate));
-		predDatum = CStringGetTextDatum(predString);
-		pfree(predString);
+		predTree = nodeToNodeTree(make_ands_explicit(indexInfo->ii_Predicate));
+		predDatum = NodeTreeGetDatum(predTree);
+		pfree(unconstify(char *, predTree));
 	}
 	else
 		predDatum = (Datum) 0;
@@ -1357,27 +1357,27 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 	if (oldInfo->ii_Expressions != NIL)
 	{
 		Datum		exprDatum;
-		char	   *exprString;
+		NodeTree	nodeTree;
 
 		exprDatum = SysCacheGetAttrNotNull(INDEXRELID, indexTuple,
 										   Anum_pg_index_indexprs);
-		exprString = TextDatumGetCString(exprDatum);
-		indexExprs = (List *) stringToNode(exprString);
-		pfree(exprString);
+		nodeTree = DatumGetNodeTree(exprDatum);
+		indexExprs = (List *) nodeTreeToNode(nodeTree);
+		pfree(unconstify(char *, nodeTree));
 	}
 	if (oldInfo->ii_Predicate != NIL)
 	{
 		Datum		predDatum;
-		char	   *predString;
+		NodeTree	nodeTree;
 
 		predDatum = SysCacheGetAttrNotNull(INDEXRELID, indexTuple,
 										   Anum_pg_index_indpred);
-		predString = TextDatumGetCString(predDatum);
-		indexPreds = (List *) stringToNode(predString);
+		nodeTree = DatumGetNodeTree(predDatum);
+		indexPreds = (List *) nodeTreeToNode(nodeTree);
 
 		/* Also convert to implicit-AND format */
 		indexPreds = make_ands_implicit((Expr *) indexPreds);
-		pfree(predString);
+		pfree(unconstify(char *, nodeTree));
 	}
 
 	/*

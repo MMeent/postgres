@@ -195,7 +195,7 @@ retry:
 									Anum_pg_class_relpartbound,
 									&isnull);
 			if (!isnull)
-				boundspec = stringToNode(TextDatumGetCString(datum));
+				boundspec = nodeTreeToNode(DatumGetNodeTree(datum));
 			ReleaseSysCache(tuple);
 		}
 
@@ -249,7 +249,7 @@ retry:
 				datum = heap_getattr(tuple, Anum_pg_class_relpartbound,
 									 RelationGetDescr(pg_class), &isnull);
 				if (!isnull)
-					boundspec = stringToNode(TextDatumGetCString(datum));
+					boundspec = nodeTreeToNode(DatumGetNodeTree(datum));
 			}
 			systable_endscan(scan);
 			table_close(pg_class, AccessShareLock);

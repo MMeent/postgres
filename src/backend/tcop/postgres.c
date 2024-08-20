@@ -646,10 +646,10 @@ pg_parse_query(const char *query_string)
 	 */
 	if (Debug_write_read_parse_plan_trees)
 	{
-		char	   *str = nodeToStringWithLocations(raw_parsetree_list);
-		List	   *new_list = stringToNodeWithLocations(str);
+		NodeTree	nodeTree = nodeToNodeTreeWithLocations(raw_parsetree_list);
+		List	   *new_list = nodeTreeToNodeWithLocations(nodeTree);
 
-		pfree(str);
+		pfree(unconstify(char *, nodeTree));
 		/* This checks both outfuncs/readfuncs and the equal() routines... */
 		if (!equal(new_list, raw_parsetree_list))
 			elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
@@ -856,8 +856,8 @@ pg_rewrite_query(Query *query)
 		foreach(lc, querytree_list)
 		{
 			Query	   *curr_query = lfirst_node(Query, lc);
-			char	   *str = nodeToStringWithLocations(curr_query);
-			Query	   *new_query = stringToNodeWithLocations(str);
+			NodeTree	nodeTree = nodeToNodeTreeWithLocations(curr_query);
+			Query	   *new_query = nodeTreeToNodeWithLocations(nodeTree);
 
 			/*
 			 * queryId is not saved in stored rules, but we must preserve it
@@ -866,7 +866,7 @@ pg_rewrite_query(Query *query)
 			new_query->queryId = curr_query->queryId;
 
 			new_list = lappend(new_list, new_query);
-			pfree(str);
+			pfree(unconstify(char *, nodeTree));
 		}
 
 		/* This checks both outfuncs/readfuncs and the equal() routines... */
@@ -937,12 +937,12 @@ pg_plan_query(Query *querytree, const char *query_string, int cursorOptions,
 	/* Optional debugging check: pass plan tree through outfuncs/readfuncs */
 	if (Debug_write_read_parse_plan_trees)
 	{
-		char	   *str;
+		NodeTree	nodeTree;
 		PlannedStmt *new_plan;
 
-		str = nodeToStringWithLocations(plan);
-		new_plan = stringToNodeWithLocations(str);
-		pfree(str);
+		nodeTree = nodeToNodeTreeWithLocations(plan);
+		new_plan = nodeTreeToNodeWithLocations(nodeTree);
+		pfree(unconstify(char *, nodeTree));
 
 		/*
 		 * equal() currently does not have routines to compare Plan nodes, so

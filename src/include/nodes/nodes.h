@@ -194,16 +194,18 @@ extern void outBitmapset(struct StringInfoData *str,
 						 const struct Bitmapset *bms);
 extern void outDatum(struct StringInfoData *str, uintptr_t value,
 					 int typlen, bool typbyval);
-extern char *nodeToString(const void *obj);
+extern NodeTree nodeToNodeTree(const void *obj);
+extern NodeTree nodeToNodeTreeWithLocations(const void *obj);
+/* Used exclusively in debugging modes */
 extern char *nodeToStringWithLocations(const void *obj);
 extern char *bmsToString(const struct Bitmapset *bms);
 
 /*
  * nodes/{readfuncs.c,read.c}
  */
-extern void *stringToNode(const char *str);
+extern void *nodeTreeToNode(NodeTree nodeTree);
 #ifdef DEBUG_NODE_TESTS_ENABLED
-extern void *stringToNodeWithLocations(const char *str);
+extern void *nodeTreeToNodeWithLocations(NodeTree nodeTree);
 #endif
 extern struct Bitmapset *readBitmapset(void);
 extern uintptr_t readDatum(bool typbyval);

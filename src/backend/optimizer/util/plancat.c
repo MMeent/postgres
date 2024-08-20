@@ -1300,7 +1300,7 @@ get_relation_constraints(PlannerInfo *root,
 			if (constr->check[i].ccnoinherit && !include_noinherit)
 				continue;
 
-			cexpr = stringToNode(constr->check[i].ccbin);
+			cexpr = nodeTreeToNode(constr->check[i].ccbin);
 
 			/*
 			 * Run each expression through const-simplification and
@@ -1517,11 +1517,11 @@ get_relation_statistics(RelOptInfo *rel, Relation relation)
 
 			if (!isnull)
 			{
-				char	   *exprsString;
+				NodeTree	nodeTree;
 
-				exprsString = TextDatumGetCString(datum);
-				exprs = (List *) stringToNode(exprsString);
-				pfree(exprsString);
+				nodeTree = DatumGetNodeTree(datum);
+				exprs = (List *) nodeTreeToNode(nodeTree);
+				pfree(unconstify(char *, nodeTree));
 
 				/*
 				 * Run the expressions through eval_const_expressions. This is
@@ -2342,7 +2342,7 @@ get_dependent_generated_columns(PlannerInfo *root, Index rti,
 				continue;
 
 			/* identify columns this generated column depends on */
-			expr = stringToNode(defval->adbin);
+			expr = nodeTreeToNode(defval->adbin);
 			pull_varattnos(expr, 1, &attrs_used);
 
 			if (bms_overlap(target_cols, attrs_used))

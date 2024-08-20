@@ -183,7 +183,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	int16	   *columns;
 	int2vector *tgattr;
 	List	   *whenRtable;
-	char	   *qual;
+	NodeTree	qual;
 	Datum		values[Natts_pg_trigger];
 	bool		nulls[Natts_pg_trigger];
 	Relation	rel;
@@ -667,7 +667,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 		/* we'll need the rtable for recordDependencyOnExpr */
 		whenRtable = pstate->p_rtable;
 
-		qual = nodeToString(whenClause);
+		qual = nodeToNodeTree(whenClause);
 
 		free_parsestate(pstate);
 	}
@@ -679,7 +679,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	}
 	else
 	{
-		qual = nodeToString(whenClause);
+		qual = nodeToNodeTree(whenClause);
 		whenRtable = NIL;
 	}
 
@@ -960,7 +960,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 
 	/* set tgqual if trigger has WHEN clause */
 	if (qual)
-		values[Anum_pg_trigger_tgqual - 1] = CStringGetTextDatum(qual);
+		values[Anum_pg_trigger_tgqual - 1] = NodeTreeGetDatum(qual);
 	else
 		nulls[Anum_pg_trigger_tgqual - 1] = true;
 
@@ -3488,7 +3488,7 @@ TriggerEnabled(EState *estate, ResultRelInfo *relinfo,
 			Node	   *tgqual;
 
 			oldContext = MemoryContextSwitchTo(estate->es_query_cxt);
-			tgqual = stringToNode(trigger->tgqual);
+			tgqual = nodeTreeToNode(trigger->tgqual);
 			/* Change references to OLD and NEW to INNER_VAR and OUTER_VAR */
 			ChangeVarNodes(tgqual, PRS2_OLD_VARNO, INNER_VAR, 0);
 			ChangeVarNodes(tgqual, PRS2_NEW_VARNO, OUTER_VAR, 0);

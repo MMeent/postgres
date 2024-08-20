@@ -787,10 +787,16 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 /*
  * Externally visible entry points
  */
-char *
-nodeToString(const void *obj)
+NodeTree
+nodeToNodeTree(const void *obj)
 {
 	return nodeToStringInternal(obj, false);
+}
+
+NodeTree
+nodeToNodeTreeWithLocations(const void *obj)
+{
+	return nodeToStringInternal(obj, true);
 }
 
 char *

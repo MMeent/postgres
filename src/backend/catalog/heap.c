@@ -2075,7 +2075,7 @@ StoreRelCheck(Relation rel, const char *ccname, Node *expr,
 			  bool is_validated, bool is_local, int inhcount,
 			  bool is_no_inherit, bool is_internal)
 {
-	char	   *ccbin;
+	NodeTree	ccbin;
 	List	   *varList;
 	int			keycount;
 	int16	   *attNos;
@@ -2084,7 +2084,7 @@ StoreRelCheck(Relation rel, const char *ccname, Node *expr,
 	/*
 	 * Flatten expression to string form for storage.
 	 */
-	ccbin = nodeToString(expr);
+	ccbin = nodeToNodeTree(expr);
 
 	/*
 	 * Find columns of rel that are used in expr
@@ -2165,7 +2165,7 @@ StoreRelCheck(Relation rel, const char *ccname, Node *expr,
 							  is_no_inherit,	/* connoinherit */
 							  is_internal); /* internally constructed? */
 
-	pfree(ccbin);
+	pfree(unconstify(char *, ccbin));
 
 	return constrOid;
 }
@@ -2382,7 +2382,7 @@ AddRelationNewConstraints(Relation rel,
 				 * Here, we assume the parser will only pass us valid CHECK
 				 * expressions, so we do no particular checking.
 				 */
-				expr = stringToNode(cdef->cooked_expr);
+				expr = nodeTreeToNode(cdef->cooked_expr);
 			}
 
 			/*
@@ -2552,7 +2552,7 @@ MergeWithExistingConstraint(Relation rel, const char *ccname, Node *expr,
 			if (isnull)
 				elog(ERROR, "null conbin for rel %s",
 					 RelationGetRelationName(rel));
-			if (equal(expr, stringToNode(TextDatumGetCString(val))))
+			if (equal(expr, nodeTreeToNode(DatumGetNodeTree(val))))
 				found = true;
 		}
 
@@ -3353,11 +3353,11 @@ StorePartitionKey(Relation rel,
 	/* Convert the expressions (if any) to a text datum */
 	if (partexprs)
 	{
-		char	   *exprString;
+		NodeTree	exprTree;
 
-		exprString = nodeToString(partexprs);
-		partexprDatum = CStringGetTextDatum(exprString);
-		pfree(exprString);
+		exprTree = nodeToNodeTree(partexprs);
+		partexprDatum = NodeTreeGetDatum(exprTree);
+		pfree(unconstify(char *, exprTree));
 	}
 	else
 		partexprDatum = (Datum) 0;
@@ -3513,7 +3513,7 @@ StorePartitionBound(Relation rel, Relation parent, PartitionBoundSpec *bound)
 	memset(new_val, 0, sizeof(new_val));
 	memset(new_null, false, sizeof(new_null));
 	memset(new_repl, false, sizeof(new_repl));
-	new_val[Anum_pg_class_relpartbound - 1] = CStringGetTextDatum(nodeToString(bound));
+	new_val[Anum_pg_class_relpartbound - 1] = NodeTreeGetDatum(nodeToNodeTree(bound));
 	new_null[Anum_pg_class_relpartbound - 1] = false;
 	new_repl[Anum_pg_class_relpartbound - 1] = true;
 	newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),

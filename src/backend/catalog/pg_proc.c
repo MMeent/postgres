@@ -329,7 +329,7 @@ ProcedureCreate(const char *procedureName,
 	else
 		nulls[Anum_pg_proc_proargnames - 1] = true;
 	if (parameterDefaults != NIL)
-		values[Anum_pg_proc_proargdefaults - 1] = CStringGetTextDatum(nodeToString(parameterDefaults));
+		values[Anum_pg_proc_proargdefaults - 1] = NodeTreeGetDatum(nodeToNodeTree(parameterDefaults));
 	else
 		nulls[Anum_pg_proc_proargdefaults - 1] = true;
 	if (trftypes != PointerGetDatum(NULL))
@@ -342,7 +342,7 @@ ProcedureCreate(const char *procedureName,
 	else
 		nulls[Anum_pg_proc_probin - 1] = true;
 	if (prosqlbody)
-		values[Anum_pg_proc_prosqlbody - 1] = CStringGetTextDatum(nodeToString(prosqlbody));
+		values[Anum_pg_proc_prosqlbody - 1] = NodeTreeGetDatum(nodeToNodeTree(prosqlbody));
 	else
 		nulls[Anum_pg_proc_prosqlbody - 1] = true;
 	if (proconfig != PointerGetDatum(NULL))
@@ -520,7 +520,7 @@ ProcedureCreate(const char *procedureName,
 
 			proargdefaults = SysCacheGetAttrNotNull(PROCNAMEARGSNSP, oldtup,
 													Anum_pg_proc_proargdefaults);
-			oldDefaults = castNode(List, stringToNode(TextDatumGetCString(proargdefaults)));
+			oldDefaults = castNode(List, nodeTreeToNode(DatumGetNodeTree(proargdefaults)));
 			Assert(list_length(oldDefaults) == oldproc->pronargdefaults);
 
 			/* new list can have more defaults than old, advance over 'em */
@@ -884,7 +884,7 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 			Node	   *n;
 			List	   *stored_query_list;
 
-			n = stringToNode(TextDatumGetCString(tmp));
+			n = nodeTreeToNode(DatumGetNodeTree(tmp));
 			if (IsA(n, List))
 				stored_query_list = linitial(castNode(List, n));
 			else

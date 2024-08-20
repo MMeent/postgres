@@ -46,7 +46,7 @@ Oid
 StoreAttrDefault(Relation rel, AttrNumber attnum,
 				 Node *expr, bool is_internal, bool add_column_mode)
 {
-	char	   *adbin;
+	NodeTree	adbin;
 	Relation	adrel;
 	HeapTuple	tuple;
 	Datum		values[4];
@@ -64,7 +64,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	/*
 	 * Flatten expression to string form for storage.
 	 */
-	adbin = nodeToString(expr);
+	adbin = nodeToNodeTree(expr);
 
 	/*
 	 * Make the pg_attrdef entry.
@@ -74,7 +74,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	values[Anum_pg_attrdef_oid - 1] = ObjectIdGetDatum(attrdefOid);
 	values[Anum_pg_attrdef_adrelid - 1] = RelationGetRelid(rel);
 	values[Anum_pg_attrdef_adnum - 1] = attnum;
-	values[Anum_pg_attrdef_adbin - 1] = CStringGetTextDatum(adbin);
+	values[Anum_pg_attrdef_adbin - 1] = NodeTreeGetDatum(adbin);
 
 	tuple = heap_form_tuple(adrel->rd_att, values, nulls);
 	CatalogTupleInsert(adrel, tuple);
@@ -88,7 +88,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	/* now can free some of the stuff allocated above */
 	pfree(DatumGetPointer(values[Anum_pg_attrdef_adbin - 1]));
 	heap_freetuple(tuple);
-	pfree(adbin);
+	pfree(unconstify(char *, adbin));
 
 	/*
 	 * Update the pg_attribute entry for the column to show that a default

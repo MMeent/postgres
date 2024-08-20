@@ -771,6 +771,11 @@ _equal${n}(const $n *a, const $n *b)
 			print $cff "\tCOPY_STRING_FIELD($f);\n" unless $copy_ignore;
 			print $eff "\tCOMPARE_STRING_FIELD($f);\n" unless $equal_ignore;
 		}
+		elsif ($t eq 'NodeTree')
+		{
+			print $cff "\tCOPY_STRING_FIELD($f);\n" unless $copy_ignore;
+			print $eff "\tCOMPARE_STRING_FIELD($f);\n" unless $equal_ignore;
+		}
 		elsif ($t eq 'Bitmapset*' || $t eq 'Relids')
 		{
 			print $cff "\tCOPY_BITMAPSET_FIELD($f);\n" unless $copy_ignore;
@@ -1086,6 +1091,11 @@ _read${n}(void)
 			print $off "\tWRITE_STRING_FIELD($f);\n";
 			print $rff "\tREAD_STRING_FIELD($f);\n" unless $no_read;
 		}
+		elsif ($t eq 'NodeTree')
+		{
+			print $off "\tWRITE_STRING_FIELD($f);\n";
+			print $rff "\tREAD_STRING_FIELD($f);\n" unless $no_read;
+		}
 		elsif ($t eq 'Bitmapset*' || $t eq 'Relids')
 		{
 			print $off "\tWRITE_BITMAPSET_FIELD($f);\n";
@@ -1313,6 +1323,11 @@ _jumble${n}(JumbleState *jstate, Node *node)
 			}
 		}
 		elsif ($t eq 'char*')
+		{
+			print $jff "\tJUMBLE_STRING($f);\n"
+			  unless $query_jumble_ignore;
+		}
+		elsif ($t eq 'NodeTree')
 		{
 			print $jff "\tJUMBLE_STRING($f);\n"
 			  unless $query_jumble_ignore;

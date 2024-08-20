@@ -1259,14 +1259,14 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 		for (ccnum = 0; ccnum < constr->num_check; ccnum++)
 		{
 			char	   *ccname = constr->check[ccnum].ccname;
-			char	   *ccbin = constr->check[ccnum].ccbin;
+			NodeTree	ccbin = constr->check[ccnum].ccbin;
 			bool		ccnoinherit = constr->check[ccnum].ccnoinherit;
 			Node	   *ccbin_node;
 			bool		found_whole_row;
 			Constraint *n;
 			AlterTableCmd *atsubcmd;
 
-			ccbin_node = map_variable_attnos(stringToNode(ccbin),
+			ccbin_node = map_variable_attnos(nodeTreeToNode(ccbin),
 											 1, 0,
 											 attmap,
 											 InvalidOid, &found_whole_row);
@@ -1291,7 +1291,7 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 			n->location = -1;
 			n->is_no_inherit = ccnoinherit;
 			n->raw_expr = NULL;
-			n->cooked_expr = nodeToString(ccbin_node);
+			n->cooked_expr = nodeToNodeTree(ccbin_node);
 
 			/* We can skip validation, since the new table should be empty. */
 			n->skip_validation = true;
@@ -1652,10 +1652,10 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 							Anum_pg_index_indexprs, &isnull);
 	if (!isnull)
 	{
-		char	   *exprsString;
+		NodeTree	nodeTree;
 
-		exprsString = TextDatumGetCString(datum);
-		indexprs = (List *) stringToNode(exprsString);
+		nodeTree = DatumGetNodeTree(datum);
+		indexprs = (List *) nodeTreeToNode(nodeTree);
 	}
 	else
 		indexprs = NIL;
@@ -1797,13 +1797,13 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 							Anum_pg_index_indpred, &isnull);
 	if (!isnull)
 	{
-		char	   *pred_str;
+		NodeTree	predTree;
 		Node	   *pred_tree;
 		bool		found_whole_row;
 
 		/* Convert text string to node tree */
-		pred_str = TextDatumGetCString(datum);
-		pred_tree = (Node *) stringToNode(pred_str);
+		predTree = DatumGetNodeTree(datum);
+		pred_tree = (Node *) nodeTreeToNode(predTree);
 
 		/* Adjust Vars to match new table's column numbering */
 		pred_tree = map_variable_attnos(pred_tree,
@@ -1914,10 +1914,10 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 	{
 		ListCell   *lc;
 		List	   *exprs = NIL;
-		char	   *exprsString;
+		NodeTree	nodeTree;
 
-		exprsString = TextDatumGetCString(datum);
-		exprs = (List *) stringToNode(exprsString);
+		nodeTree = DatumGetNodeTree(datum);
+		exprs = (List *) nodeTreeToNode(nodeTree);
 
 		foreach(lc, exprs)
 		{
@@ -1938,7 +1938,7 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 			def_names = lappend(def_names, selem);
 		}
 
-		pfree(exprsString);
+		pfree(unconstify(char *, nodeTree));
 	}
 
 	/* finally, build the output node */

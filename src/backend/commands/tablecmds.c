@@ -2798,7 +2798,7 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
 					continue;
 
 				/* Adjust Vars to match new table's column numbering */
-				expr = map_variable_attnos(stringToNode(check[i].ccbin),
+				expr = map_variable_attnos(nodeTreeToNode(check[i].ccbin),
 										   1, 0,
 										   newattmap,
 										   InvalidOid, &found_whole_row);
@@ -11674,7 +11674,7 @@ ATExecValidateConstraint(List **wqueue, Relation rel, char *constrName,
 			ListCell   *child;
 			NewConstraint *newcon;
 			Datum		val;
-			char	   *conbin;
+			NodeTree	conbin;
 
 			/*
 			 * If we're recursing, the parent has already done this, so skip
@@ -11729,8 +11729,8 @@ ATExecValidateConstraint(List **wqueue, Relation rel, char *constrName,
 
 			val = SysCacheGetAttrNotNull(CONSTROID, tuple,
 										 Anum_pg_constraint_conbin);
-			conbin = TextDatumGetCString(val);
-			newcon->qual = (Node *) stringToNode(conbin);
+			conbin = DatumGetNodeTree(val);
+			newcon->qual = (Node *) nodeTreeToNode(conbin);
 
 			/* Find or create work queue entry for this table */
 			tab = ATGetQueueEntry(wqueue, rel);
@@ -18220,7 +18220,7 @@ ConstraintImpliedByRelConstraint(Relation scanrel, List *testConstraint, List *p
 		if (!constr->check[i].ccvalid)
 			continue;
 
-		cexpr = stringToNode(constr->check[i].ccbin);
+		cexpr = nodeTreeToNode(constr->check[i].ccbin);
 
 		/*
 		 * Run each expression through const-simplification and
@@ -18904,7 +18904,7 @@ CloneRowTriggersToPartition(Relation parent, Relation partition)
 							 RelationGetDescr(pg_trigger), &isnull);
 		if (!isnull)
 		{
-			qual = stringToNode(TextDatumGetCString(value));
+			qual = nodeTreeToNode(DatumGetNodeTree(value));
 			qual = (Node *) map_partition_varattnos((List *) qual, PRS2_OLD_VARNO,
 													partition, parent);
 			qual = (Node *) map_partition_varattnos((List *) qual, PRS2_NEW_VARNO,
@@ -19480,7 +19480,7 @@ DetachAddConstraintIfNeeded(List **wqueue, Relation partRel)
 		n->location = -1;
 		n->is_no_inherit = false;
 		n->raw_expr = NULL;
-		n->cooked_expr = nodeToString(make_ands_explicit(constraintExpr));
+		n->cooked_expr = nodeToNodeTree(make_ands_explicit(constraintExpr));
 		n->initially_valid = true;
 		n->skip_validation = true;
 		/* It's a re-add, since it nominally already exists */

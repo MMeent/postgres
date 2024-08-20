@@ -1875,7 +1875,7 @@ GetForeignServerByName(const char *name, bool missing_ok);
      <structfield>fdw_private</structfield> is declared as a <type>List</type> pointer, but
      could actually contain anything since the core planner does not touch
      it.  However, best practice is to use a representation that's dumpable
-     by <function>nodeToString</function>, for use with debugging support available
+     by <function>nodeToNodeTree</function>, for use with debugging support available
      in the backend.
     </para>
 
