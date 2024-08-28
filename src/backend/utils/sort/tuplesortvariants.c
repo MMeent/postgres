@@ -199,6 +199,7 @@ tuplesort_begin_heap(TupleDesc tupDesc,
 	base->comparetup = comparetup_heap;
 	base->comparetup_tiebreak = comparetup_heap_tiebreak;
 	base->writetup = writetup_heap;
+	base->flushwrites = NULL;
 	base->readtup = readtup_heap;
 	base->haveDatum1 = true;
 	base->arg = tupDesc;		/* assume we need not copy tupDesc */
@@ -275,6 +276,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 	base->comparetup = comparetup_cluster;
 	base->comparetup_tiebreak = comparetup_cluster_tiebreak;
 	base->writetup = writetup_cluster;
+	base->flushwrites = NULL;
 	base->readtup = readtup_cluster;
 	base->freestate = freestate_cluster;
 	base->arg = arg;
@@ -383,6 +385,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 	base->comparetup = comparetup_index_btree;
 	base->comparetup_tiebreak = comparetup_index_btree_tiebreak;
 	base->writetup = writetup_index;
+	base->flushwrites = NULL;
 	base->readtup = readtup_index;
 	base->haveDatum1 = true;
 	base->arg = arg;
@@ -462,6 +465,7 @@ tuplesort_begin_index_hash(Relation heapRel,
 	base->comparetup = comparetup_index_hash;
 	base->comparetup_tiebreak = comparetup_index_hash_tiebreak;
 	base->writetup = writetup_index;
+	base->flushwrites = NULL;
 	base->readtup = readtup_index;
 	base->haveDatum1 = true;
 	base->arg = arg;
@@ -506,6 +510,7 @@ tuplesort_begin_index_gist(Relation heapRel,
 	base->comparetup = comparetup_index_btree;
 	base->comparetup_tiebreak = comparetup_index_btree_tiebreak;
 	base->writetup = writetup_index;
+	base->flushwrites = NULL;
 	base->readtup = readtup_index;
 	base->haveDatum1 = true;
 	base->arg = arg;
@@ -561,6 +566,7 @@ tuplesort_begin_index_brin(int workMem,
 	base->removeabbrev = removeabbrev_index_brin;
 	base->comparetup = comparetup_index_brin;
 	base->writetup = writetup_index_brin;
+	base->flushwrites = NULL;
 	base->readtup = readtup_index_brin;
 	base->haveDatum1 = true;
 	base->arg = NULL;
@@ -602,6 +608,7 @@ tuplesort_begin_datum(Oid datumType, Oid sortOperator, Oid sortCollation,
 	base->comparetup = comparetup_datum;
 	base->comparetup_tiebreak = comparetup_datum_tiebreak;
 	base->writetup = writetup_datum;
+	base->flushwrites = NULL;
 	base->readtup = readtup_datum;
 	base->haveDatum1 = true;
 	base->arg = arg;

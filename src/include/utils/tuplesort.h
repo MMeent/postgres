@@ -195,6 +195,15 @@ typedef struct
 							 SortTuple *stup);
 
 	/*
+	 * Flush any buffered writetup() writes.
+	 *
+	 * This is useful when writetup() buffers writes for more efficient
+	 * use of the tape's resources, e.g. when deduplicating or merging
+	 * sort tuples.
+	 */
+	void		(*flushwrites) (Tuplesortstate *state, LogicalTape *tape);
+
+	/*
 	 * Function to read a stored tuple from tape back into memory. 'len' is
 	 * the already-read length of the stored tuple.  The tuple is allocated
 	 * from the slab memory arena, or is palloc'd, see
