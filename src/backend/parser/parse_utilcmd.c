@@ -1938,7 +1938,7 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 			def_names = lappend(def_names, selem);
 		}
 
-		pfree(unconstify(char *, nodeTree));
+		pfree(unconstify(struct varlena *, nodeTree));
 	}
 
 	/* finally, build the output node */

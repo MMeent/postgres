@@ -701,7 +701,7 @@ typedef struct varlena text;
 typedef struct varlena BpChar;	/* blank-padded char, ie SQL char(n) */
 typedef struct varlena VarChar; /* var-length char, ie SQL varchar(n) */
 
-typedef const char * NodeTree;	/* serialized Node tree */
+typedef const struct varlena *NodeTree;	/* serialized Node tree */
 
 /*
  * Specialized array types.  These are physically laid out just the same

@@ -58,6 +58,20 @@
 			return false; \
 	} while (0)
 
+/*
+ * Compare a field that is a pointer to a varlena value, or perhaps NULL.
+ * Note that the fields must be a pointer to a plain varlena value, so no
+ * short, compressed, or external data.
+ */
+#define COMPARE_VARLENA_FIELD(fldname) \
+	do { \
+		Assert(VARATT_IS_4B(a->fldname) && VARATT_IS_4B(b->fldname)); \
+		if (VARSIZE(a->fldname) != VARSIZE(b->fldname)) \
+			return false; \
+		if (memcmp(a, b, VARSIZE(a->fldname)) != 0) \
+			return false; \
+	} while (0)
+
 /* Macro for comparing string fields that might be NULL */
 #define equalstr(a, b)	\
 	(((a) != NULL && (b) != NULL) ? (strcmp(a, b) == 0) : (a) == (b))

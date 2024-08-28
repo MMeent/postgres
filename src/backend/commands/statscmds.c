@@ -476,7 +476,7 @@ CreateStatistics(CreateStatsStmt *stmt)
 
 		exprsTree = nodeToNodeTree(stxexprs);
 		exprsDatum = NodeTreeGetDatum(exprsTree);
-		pfree(unconstify(char *, exprsTree));
+		pfree(unconstify(struct varlena *, exprsTree));
 	}
 	else
 		exprsDatum = (Datum) 0;

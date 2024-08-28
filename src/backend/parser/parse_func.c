@@ -1644,7 +1644,7 @@ func_get_detail(List *funcname,
 													Anum_pg_proc_proargdefaults);
 			nodeTree = DatumGetNodeTree(proargdefaults);
 			defaults = castNode(List, nodeTreeToNode(nodeTree));
-			pfree(unconstify(char *, nodeTree));
+			pfree(unconstify(struct varlena *, nodeTree));
 
 			/* Delete any unused defaults from the returned list */
 			if (best_candidate->argnumbers != NULL)

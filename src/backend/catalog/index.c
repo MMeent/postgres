@@ -603,7 +603,7 @@ UpdateIndexRelation(Oid indexoid,
 
 		exprsTree = nodeToNodeTree(indexInfo->ii_Expressions);
 		exprsDatum = NodeTreeGetDatum(exprsTree);
-		pfree(unconstify(char *, exprsTree));
+		pfree(unconstify(struct varlena *, exprsTree));
 	}
 	else
 		exprsDatum = (Datum) 0;
@@ -618,7 +618,7 @@ UpdateIndexRelation(Oid indexoid,
 
 		predTree = nodeToNodeTree(make_ands_explicit(indexInfo->ii_Predicate));
 		predDatum = NodeTreeGetDatum(predTree);
-		pfree(unconstify(char *, predTree));
+		pfree(unconstify(struct varlena *, predTree));
 	}
 	else
 		predDatum = (Datum) 0;
@@ -1363,7 +1363,7 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 										   Anum_pg_index_indexprs);
 		nodeTree = DatumGetNodeTree(exprDatum);
 		indexExprs = (List *) nodeTreeToNode(nodeTree);
-		pfree(unconstify(char *, nodeTree));
+		pfree(unconstify(struct varlena *, nodeTree));
 	}
 	if (oldInfo->ii_Predicate != NIL)
 	{
@@ -1377,7 +1377,7 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 
 		/* Also convert to implicit-AND format */
 		indexPreds = make_ands_implicit((Expr *) indexPreds);
-		pfree(unconstify(char *, nodeTree));
+		pfree(unconstify(struct varlena *, nodeTree));
 	}
 
 	/*

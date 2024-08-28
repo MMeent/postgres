@@ -1968,7 +1968,7 @@ RelationBuildTriggers(Relation relation)
 		datum = fastgetattr(htup, Anum_pg_trigger_tgqual,
 							tgrel->rd_att, &isnull);
 		if (!isnull)
-			build->tgqual = TextDatumGetCString(datum);
+			build->tgqual = DatumGetNodeTree(datum);
 		else
 			build->tgqual = NULL;
 
@@ -2122,7 +2122,7 @@ CopyTriggerDesc(TriggerDesc *trigdesc)
 			trigger->tgargs = newargs;
 		}
 		if (trigger->tgqual)
-			trigger->tgqual = pstrdup(trigger->tgqual);
+			trigger->tgqual = pg_detoast_datum_copy(unconstify(struct varlena *, trigger->tgqual));
 		if (trigger->tgoldtable)
 			trigger->tgoldtable = pstrdup(trigger->tgoldtable);
 		if (trigger->tgnewtable)
@@ -2158,7 +2158,7 @@ FreeTriggerDesc(TriggerDesc *trigdesc)
 			pfree(trigger->tgargs);
 		}
 		if (trigger->tgqual)
-			pfree(trigger->tgqual);
+			pfree(unconstify(struct varlena *, trigger->tgqual));
 		if (trigger->tgoldtable)
 			pfree(trigger->tgoldtable);
 		if (trigger->tgnewtable)

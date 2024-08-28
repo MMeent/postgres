@@ -97,8 +97,8 @@ extern void text_to_cstring_buffer(const text *src, char *dst, size_t dst_len);
 #define CStringGetTextDatum(s) PointerGetDatum(cstring_to_text(s))
 #define TextDatumGetCString(d) text_to_cstring((text *) DatumGetPointer(d))
 
-#define NodeTreeGetDatum(n) PointerGetDatum(cstring_to_text(n))
-#define DatumGetNodeTree(d) text_to_cstring((text *) DatumGetPointer(d))
+#define NodeTreeGetDatum(n) PointerGetDatum(n)
+#define DatumGetNodeTree(d) pg_detoast_datum_copy((text *) DatumGetPointer(d))
 
 
 /* xid.c */

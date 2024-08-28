@@ -651,8 +651,7 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate,
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 
 	/* Estimate space for serialized PlannedStmt. */
-	/* TODO: Handle non-cstring plans here */
-	pstmt_len = strlen(pstmt_data) + 1;
+	pstmt_len = VARSIZE(pstmt_data);
 	shm_toc_estimate_chunk(&pcxt->estimator, pstmt_len);
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 

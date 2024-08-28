@@ -5126,7 +5126,7 @@ get_partition_bound_spec(Oid partOid, RangeVar *name)
 		elog(ERROR, "partition bound for relation \"%s\" is null",
 			 name->relname);
 
-	boundspec = nodeTreeToNode(TextDatumGetCString(datum));
+	boundspec = nodeTreeToNode(DatumGetNodeTree(datum));
 
 	if (!IsA(boundspec, PartitionBoundSpec))
 		elog(ERROR, "expected PartitionBoundSpec for relation \"%s\"",

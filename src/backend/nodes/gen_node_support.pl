@@ -773,8 +773,8 @@ _equal${n}(const $n *a, const $n *b)
 		}
 		elsif ($t eq 'NodeTree')
 		{
-			print $cff "\tCOPY_STRING_FIELD($f);\n" unless $copy_ignore;
-			print $eff "\tCOMPARE_STRING_FIELD($f);\n" unless $equal_ignore;
+			print $cff "\tCOPY_VARLENA_FIELD($f);\n" unless $copy_ignore;
+			print $eff "\tCOMPARE_VARLENA_FIELD($f);\n" unless $equal_ignore;
 		}
 		elsif ($t eq 'Bitmapset*' || $t eq 'Relids')
 		{
@@ -1093,8 +1093,8 @@ _read${n}(void)
 		}
 		elsif ($t eq 'NodeTree')
 		{
-			print $off "\tWRITE_STRING_FIELD($f);\n";
-			print $rff "\tREAD_STRING_FIELD($f);\n" unless $no_read;
+			print $off "\tWRITE_VARLENA_FIELD($f);\n";
+			print $rff "\tREAD_VARLENA_FIELD($f);\n" unless $no_read;
 		}
 		elsif ($t eq 'Bitmapset*' || $t eq 'Relids')
 		{
@@ -1329,7 +1329,7 @@ _jumble${n}(JumbleState *jstate, Node *node)
 		}
 		elsif ($t eq 'NodeTree')
 		{
-			print $jff "\tJUMBLE_STRING($f);\n"
+			print $jff "\tJUMBLE_VARLENA($f);\n"
 			  unless $query_jumble_ignore;
 		}
 		else

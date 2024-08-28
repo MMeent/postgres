@@ -649,7 +649,7 @@ pg_parse_query(const char *query_string)
 		NodeTree	nodeTree = nodeToNodeTreeWithLocations(raw_parsetree_list);
 		List	   *new_list = nodeTreeToNodeWithLocations(nodeTree);
 
-		pfree(unconstify(char *, nodeTree));
+		pfree(unconstify(struct varlena *, nodeTree));
 		/* This checks both outfuncs/readfuncs and the equal() routines... */
 		if (!equal(new_list, raw_parsetree_list))
 			elog(WARNING, "outfuncs/readfuncs failed to produce an equal raw parse tree");
@@ -866,7 +866,7 @@ pg_rewrite_query(Query *query)
 			new_query->queryId = curr_query->queryId;
 
 			new_list = lappend(new_list, new_query);
-			pfree(unconstify(char *, nodeTree));
+			pfree(unconstify(struct varlena *, nodeTree));
 		}
 
 		/* This checks both outfuncs/readfuncs and the equal() routines... */
@@ -942,7 +942,7 @@ pg_plan_query(Query *querytree, const char *query_string, int cursorOptions,
 
 		nodeTree = nodeToNodeTreeWithLocations(plan);
 		new_plan = nodeTreeToNodeWithLocations(nodeTree);
-		pfree(unconstify(char *, nodeTree));
+		pfree(unconstify(struct varlena *, nodeTree));
 
 		/*
 		 * equal() currently does not have routines to compare Plan nodes, so

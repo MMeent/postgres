@@ -1343,7 +1343,7 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 											Anum_pg_index_indexprs);
 		exprsTree = DatumGetNodeTree(exprsDatum);
 		indexprs = (List *) nodeTreeToNode(exprsTree);
-		pfree(unconstify(char *, exprsTree));
+		pfree(unconstify(struct varlena *, exprsTree));
 	}
 	else
 		indexprs = NIL;
@@ -1539,7 +1539,7 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 											   Anum_pg_index_indpred);
 			predTree = DatumGetNodeTree(predDatum);
 			node = (Node *) nodeTreeToNode(predTree);
-			pfree(unconstify(char *, predTree));
+			pfree(unconstify(struct varlena *, predTree));
 
 			/* Deparse */
 			str = deparse_expression_pretty(node, context, false, false,
@@ -1683,7 +1683,7 @@ pg_get_statisticsobj_worker(Oid statextid, bool columns_only, bool missing_ok)
 											Anum_pg_statistic_ext_stxexprs);
 		exprsTree = DatumGetNodeTree(exprsDatum);
 		exprs = (List *) nodeTreeToNode(exprsTree);
-		pfree(unconstify(char *, exprsTree));
+		pfree(unconstify(struct varlena *, exprsTree));
 	}
 	else
 		exprs = NIL;
@@ -1856,7 +1856,7 @@ pg_get_statisticsobjdef_expressions(PG_FUNCTION_ARGS)
 								   Anum_pg_statistic_ext_stxexprs);
 	tmp = DatumGetNodeTree(datum);
 	exprs = (List *) nodeTreeToNode(tmp);
-	pfree(unconstify(char *, tmp));
+	pfree(unconstify(struct varlena *, tmp));
 
 	context = deparse_context_for(get_relation_name(statextrec->stxrelid),
 								  statextrec->stxrelid);
@@ -1975,7 +1975,7 @@ pg_get_partkeydef_worker(Oid relid, int prettyFlags,
 			elog(ERROR, "unexpected node type found in partexprs: %d",
 				 (int) nodeTag(partexprs));
 
-		pfree(unconstify(char *, exprsTree));
+		pfree(unconstify(struct varlena *, exprsTree));
 	}
 	else
 		partexprs = NIL;
@@ -2664,17 +2664,11 @@ pg_get_expr_worker(text *expr, Oid relid, int prettyFlags)
 	Node	   *tst;
 	Relids		relids;
 	List	   *context;
-	char	   *exprstr;
 	Relation	rel = NULL;
 	char	   *str;
 
-	/* Convert input pg_node_tree (really TEXT) object to C string */
-	exprstr = text_to_cstring(expr);
-
 	/* Convert expression to node tree */
-	node = (Node *) nodeTreeToNode(exprstr);
-
-	pfree(exprstr);
+	node = (Node *) nodeTreeToNode(expr);
 
 	/*
 	 * Throw error if the input is a querytree rather than an expression tree.
@@ -3280,7 +3274,7 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 
 			tree = DatumGetNodeTree(proargdefaults);
 			argdefaults = castNode(List, nodeTreeToNode(tree));
-			pfree(unconstify(char *, tree));
+			pfree(unconstify(struct varlena *, tree));
 			nextargdefault = list_head(argdefaults);
 			/* nlackdefaults counts only *input* arguments lacking defaults */
 			nlackdefaults = proc->pronargs - list_length(argdefaults);
@@ -3481,7 +3475,7 @@ pg_get_function_arg_default(PG_FUNCTION_ARGS)
 
 	nodeTree = DatumGetNodeTree(proargdefaults);
 	argdefaults = castNode(List, nodeTreeToNode(nodeTree));
-	pfree(unconstify(char *, nodeTree));
+	pfree(unconstify(struct varlena *, nodeTree));
 
 	proc = (Form_pg_proc) GETSTRUCT(proctup);
 
@@ -5192,12 +5186,12 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	is_instead = DatumGetBool(dat);
 
 	fno = SPI_fnumber(rulettc, "ev_qual");
-	ev_qual = SPI_getvalue(ruletup, rulettc, fno);
-	Assert(ev_qual != NULL);
+	ev_qual = DatumGetNodeTree(SPI_getbinval(ruletup, rulettc, fno, &isnull));
+	Assert(!isnull);
 
 	fno = SPI_fnumber(rulettc, "ev_action");
-	ev_action = SPI_getvalue(ruletup, rulettc, fno);
-	Assert(ev_action != NULL);
+	ev_action = DatumGetNodeTree(SPI_getbinval(ruletup, rulettc, fno, &isnull));
+	Assert(!isnull);
 	actions = (List *) nodeTreeToNode(ev_action);
 	if (actions == NIL)
 		elog(ERROR, "invalid empty ev_action list");
@@ -5250,7 +5244,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 					 generate_qualified_relation_name(ev_class));
 
 	/* If the rule has an event qualification, add it */
-	if (strcmp(ev_qual, "<>") != 0)
+	if (memcmp(VARDATA(ev_qual), "<>", 2) != 0)
 	{
 		Node	   *qual;
 		Query	   *query;
@@ -5375,12 +5369,12 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	is_instead = DatumGetBool(dat);
 
 	fno = SPI_fnumber(rulettc, "ev_qual");
-	ev_qual = SPI_getvalue(ruletup, rulettc, fno);
-	Assert(ev_qual != NULL);
+	ev_qual = DatumGetNodeTree(SPI_getbinval(ruletup, rulettc, fno, &isnull));
+	Assert(!isnull);
 
 	fno = SPI_fnumber(rulettc, "ev_action");
-	ev_action = SPI_getvalue(ruletup, rulettc, fno);
-	Assert(ev_action != NULL);
+	ev_action = DatumGetNodeTree(SPI_getbinval(ruletup, rulettc, fno, &isnull));
+	Assert(!isnull);
 	actions = (List *) nodeTreeToNode(ev_action);
 
 	if (list_length(actions) != 1)
@@ -5392,7 +5386,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	query = (Query *) linitial(actions);
 
 	if (ev_type != '1' || !is_instead ||
-		strcmp(ev_qual, "<>") != 0 || query->commandType != CMD_SELECT)
+		memcmp(VARDATA(ev_qual), "<>", 2) != 0 || query->commandType != CMD_SELECT)
 	{
 		/* keep output buffer empty and leave */
 		return;

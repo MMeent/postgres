@@ -196,7 +196,7 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			cpy->defval = (AttrDefault *) palloc(cpy->num_defval * sizeof(AttrDefault));
 			memcpy(cpy->defval, constr->defval, cpy->num_defval * sizeof(AttrDefault));
 			for (i = cpy->num_defval - 1; i >= 0; i--)
-				cpy->defval[i].adbin = pstrdup(constr->defval[i].adbin);
+				cpy->defval[i].adbin = pg_detoast_datum_copy(unconstify(struct varlena *, constr->defval[i].adbin));
 		}
 
 		if (constr->missing)
@@ -223,7 +223,7 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			for (i = cpy->num_check - 1; i >= 0; i--)
 			{
 				cpy->check[i].ccname = pstrdup(constr->check[i].ccname);
-				cpy->check[i].ccbin = pstrdup(constr->check[i].ccbin);
+				cpy->check[i].ccbin = pg_detoast_datum_copy(unconstify(struct varlena *, constr->check[i].ccbin));
 				cpy->check[i].ccvalid = constr->check[i].ccvalid;
 				cpy->check[i].ccnoinherit = constr->check[i].ccnoinherit;
 			}
@@ -345,7 +345,7 @@ FreeTupleDesc(TupleDesc tupdesc)
 			AttrDefault *attrdef = tupdesc->constr->defval;
 
 			for (i = tupdesc->constr->num_defval - 1; i >= 0; i--)
-				pfree(unconstify(char *, attrdef[i].adbin));
+				pfree(unconstify(struct varlena *, attrdef[i].adbin));
 			pfree(attrdef);
 		}
 		if (tupdesc->constr->missing)
@@ -367,7 +367,7 @@ FreeTupleDesc(TupleDesc tupdesc)
 			for (i = tupdesc->constr->num_check - 1; i >= 0; i--)
 			{
 				pfree(check[i].ccname);
-				pfree(unconstify(char *, check[i].ccbin));
+				pfree(unconstify(struct varlena *, check[i].ccbin));
 			}
 			pfree(check);
 		}
@@ -505,7 +505,7 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 
 			if (defval1->adnum != defval2->adnum)
 				return false;
-			if (strcmp(defval1->adbin, defval2->adbin) != 0)
+			if (memcmp(defval1->adbin, defval2->adbin, VARSIZE(defval1->adbin)) != 0)
 				return false;
 		}
 		if (constr1->missing)
@@ -546,7 +546,9 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 			ConstrCheck *check2 = constr2->check + i;
 
 			if (!(strcmp(check1->ccname, check2->ccname) == 0 &&
-				  strcmp(check1->ccbin, check2->ccbin) == 0 &&
+				  VARSIZE(check1->ccbin) == VARSIZE(check2->ccbin) &&
+				  memcmp(check1->ccbin, check2->ccbin,
+						 VARSIZE(check1->ccbin)) == 0 &&
 				  check1->ccvalid == check2->ccvalid &&
 				  check1->ccnoinherit == check2->ccnoinherit))
 				return false;

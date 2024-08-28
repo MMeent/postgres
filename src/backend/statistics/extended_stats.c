@@ -492,7 +492,7 @@ fetch_statentries_for_relation(Relation pg_statext, Oid relid)
 			nodeTree = DatumGetNodeTree(datum);
 			exprs = (List *) nodeTreeToNode(nodeTree);
 
-			pfree(unconstify(char *, nodeTree));
+			pfree(unconstify(struct varlena *, nodeTree));
 
 			/*
 			 * Run the expressions through eval_const_expressions. This is not

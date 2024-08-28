@@ -276,7 +276,7 @@ RelationBuildRowSecurity(Relation relation)
 			MemoryContextSwitchTo(rscxt);
 			policy->qual = (Expr *) nodeTreeToNode(nodeTree);
 			MemoryContextSwitchTo(oldcxt);
-			pfree(unconstify(char *, nodeTree));
+			pfree(unconstify(struct varlena *, nodeTree));
 		}
 		else
 			policy->qual = NULL;
@@ -290,7 +290,7 @@ RelationBuildRowSecurity(Relation relation)
 			MemoryContextSwitchTo(rscxt);
 			policy->with_check_qual = (Expr *) nodeTreeToNode(nodeTree);
 			MemoryContextSwitchTo(oldcxt);
-			pfree(unconstify(char *, nodeTree));
+			pfree(unconstify(struct varlena *, nodeTree));
 		}
 		else
 			policy->with_check_qual = NULL;

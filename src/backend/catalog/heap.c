@@ -2165,7 +2165,7 @@ StoreRelCheck(Relation rel, const char *ccname, Node *expr,
 							  is_no_inherit,	/* connoinherit */
 							  is_internal); /* internally constructed? */
 
-	pfree(unconstify(char *, ccbin));
+	pfree(unconstify(struct varlena *, ccbin));
 
 	return constrOid;
 }
@@ -3357,7 +3357,7 @@ StorePartitionKey(Relation rel,
 
 		exprTree = nodeToNodeTree(partexprs);
 		partexprDatum = NodeTreeGetDatum(exprTree);
-		pfree(unconstify(char *, exprTree));
+		pfree(unconstify(struct varlena *, exprTree));
 	}
 	else
 		partexprDatum = (Datum) 0;

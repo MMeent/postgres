@@ -146,7 +146,7 @@ RelationBuildPartitionKey(Relation relation)
 
 		exprTree = DatumGetNodeTree(datum);
 		expr = nodeTreeToNode(exprTree);
-		pfree(unconstify(char *, exprTree));
+		pfree(unconstify(struct varlena *, exprTree));
 
 		/*
 		 * Run the expressions through const-simplification since the planner

@@ -26,6 +26,7 @@
 #include "nodes/pg_list.h"
 #include "nodes/readfuncs.h"
 #include "nodes/value.h"
+#include "varatt.h"
 
 
 /* Static state for pg_strtok */
@@ -61,8 +62,9 @@ stringToNodeInternal(NodeTree nodeTree, bool restore_loc_fields)
 	 * pointer around through all the readfuncs.c code.
 	 */
 	save_strtok = pg_strtok_ptr;
+	Assert(VARATT_IS_4B_U(nodeTree));
 
-	pg_strtok_ptr = nodeTree;		/* point pg_strtok at the string to read */
+	pg_strtok_ptr = VARDATA(nodeTree);		/* point pg_strtok at the string to read */
 
 	/*
 	 * If enabled, likewise save/restore the location field handling flag.

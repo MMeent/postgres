@@ -24,6 +24,7 @@
 #include "nodes/nodes.h"
 #include "nodes/pg_list.h"
 #include "utils/datum.h"
+#include "varatt.h"
 
 /* State flag that determines how nodeToStringInternal() should treat location fields */
 static bool write_location_fields = false;
@@ -88,6 +89,11 @@ static void outDouble(StringInfo str, double d);
 #define WRITE_STRING_FIELD(fldname) \
 	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
 	 outToken(str, node->fldname))
+
+/* Write a varlena (possibly NULL) field */
+#define WRITE_VARLENA_FIELD(fldname) \
+	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	 outVarlena(str, node->fldname))
 
 /* Write a parse location field (actually same as INT case) */
 #define WRITE_LOCATION_FIELD(fldname) \
@@ -180,6 +186,35 @@ outToken(StringInfo str, const char *s)
 			appendStringInfoChar(str, '\\');
 		appendStringInfoChar(str, *s++);
 	}
+}
+
+static void
+outVarlena(StringInfo str, const struct varlena *data)
+{
+	int			len;
+	char	   *ptr;
+
+	if (data == NULL)
+	{
+		appendStringInfoString(str, "<>");
+		return;
+	}
+
+	Assert(VARATT_IS_4B(data));
+
+	len = VARSIZE(data);
+	ptr = VARDATA(data);
+
+	appendStringInfo(str, "(%d ", len);
+
+	len -= VARHDRSZ;
+
+	for (int i = 0; i < len; i++)
+	{
+		appendStringInfo(str, "%02X", ptr[i]);
+	}
+
+	appendStringInfoCharMacro(str, ')');
 }
 
 /*
@@ -766,8 +801,9 @@ outNode(StringInfo str, const void *obj)
  * but for most uses, the actual value is not useful, since the original query
  * string is no longer available.
  */
-static char *
-nodeToStringInternal(const void *obj, bool write_loc_fields)
+static void *
+nodeToStringInternal(const void *obj, bool write_loc_fields,
+					 bool vlena)
 {
 	StringInfoData str;
 	bool		save_write_location_fields;
@@ -777,10 +813,23 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 
 	/* see stringinfo.h for an explanation of this maneuver */
 	initStringInfo(&str);
+
+	if (vlena)
+	{
+		for (int i = 0; i < VARHDRSZ; i++)
+			appendStringInfoCharMacro(&str, '\0');
+	}
+
 	outNode(&str, obj);
 
 	write_location_fields = save_write_location_fields;
 
+	/*
+	 * Note: we include the trailing 0 byte in the otherwise text datum,
+	 * this saves us from problems during reading with the old system.
+	 */
+	if (vlena)
+		SET_VARSIZE(str.data, str.len + 1); 
 	return str.data;
 }
 
@@ -790,19 +839,19 @@ nodeToStringInternal(const void *obj, bool write_loc_fields)
 NodeTree
 nodeToNodeTree(const void *obj)
 {
-	return nodeToStringInternal(obj, false);
+	return nodeToStringInternal(obj, false, true);
 }
 
 NodeTree
 nodeToNodeTreeWithLocations(const void *obj)
 {
-	return nodeToStringInternal(obj, true);
+	return nodeToStringInternal(obj, true, true);
 }
 
 char *
 nodeToStringWithLocations(const void *obj)
 {
-	return nodeToStringInternal(obj, true);
+	return nodeToStringInternal(obj, true, false);
 }
 
 

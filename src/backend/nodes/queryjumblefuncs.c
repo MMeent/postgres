@@ -229,6 +229,11 @@ do { \
 	if (expr->str) \
 		AppendJumble(jstate, (const unsigned char *) (expr->str), strlen(expr->str) + 1); \
 } while(0)
+#define JUMBLE_VARLENA(item) \
+do { \
+	if (expr->item) \
+		AppendJumble(jstate, (const unsigned char *) (expr->item), VARSIZE(expr->item)); \
+} while(0)
 
 #include "queryjumblefuncs.funcs.c"
 

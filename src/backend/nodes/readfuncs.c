@@ -31,6 +31,8 @@
 #include "miscadmin.h"
 #include "nodes/bitmapset.h"
 #include "nodes/readfuncs.h"
+#include "varatt.h"
+#include "utils/builtins.h"
 
 
 /*
@@ -117,6 +119,11 @@
 	token = pg_strtok(&length);		/* get field value */ \
 	local_node->fldname = nullable_string(token, length)
 
+/* Read a varlena field */
+#define READ_VARLENA_FIELD(fldname) \
+	token = pg_strtok(&length);		/* skip :fldname */ \
+	local_node->fldname = readVarlena()
+
 /* Read a parse location field (and possibly throw away the value) */
 #ifdef DEBUG_NODE_TESTS_ENABLED
 #define READ_LOCATION_FIELD(fldname) \
@@ -191,6 +198,37 @@ nullable_string(const char *token, int length)
 	return debackslash(token, length);
 }
 
+static struct varlena *
+readVarlena(void)
+{
+	struct varlena *result;
+	char	   *data;
+	int			len;
+	int			toklen;
+	const char *tok;
+	tok = pg_strtok(&toklen);
+
+	if (toklen == 2 && strncmp(tok, "<>", 2) == 0)
+		return NULL;
+
+	tok = pg_strtok(&toklen);
+	len = atoi(tok);
+
+	result = palloc(len);
+	SET_VARSIZE(result, len);
+	data = VARDATA(result);
+	len -= VARHDRSZ;
+	tok = pg_strtok(&toklen);
+
+	Assert(toklen == len * 2);
+
+	hex_decode(tok, len, data);
+
+	tok = pg_strtok(&toklen);
+	Assert(toklen == 1 && tok[0] == ')');
+
+	return result;
+}
 
 /*
  * _readBitmapset

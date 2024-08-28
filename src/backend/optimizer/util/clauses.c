@@ -4345,7 +4345,7 @@ fetch_function_defaults(HeapTuple func_tuple)
 											Anum_pg_proc_proargdefaults);
 	nodeTree = DatumGetNodeTree(proargdefaults);
 	defaults = castNode(List, nodeTreeToNode(nodeTree));
-	pfree(unconstify(char *, nodeTree));
+	pfree(unconstify(struct varlena *, nodeTree));
 	return defaults;
 }
 

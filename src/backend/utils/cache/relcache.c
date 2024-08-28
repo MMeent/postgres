@@ -817,7 +817,7 @@ RelationBuildRuleLock(Relation relation)
 		oldcxt = MemoryContextSwitchTo(rulescxt);
 		rule->actions = (List *) nodeTreeToNode(ruleTree);
 		MemoryContextSwitchTo(oldcxt);
-		pfree(unconstify(char *, ruleTree));
+		pfree(unconstify(struct varlena *, ruleTree));
 
 		rule_datum = heap_getattr(rewrite_tuple,
 								  Anum_pg_rewrite_ev_qual,
@@ -828,7 +828,7 @@ RelationBuildRuleLock(Relation relation)
 		oldcxt = MemoryContextSwitchTo(rulescxt);
 		rule->qual = (Node *) nodeTreeToNode(ruleTree);
 		MemoryContextSwitchTo(oldcxt);
-		pfree(unconstify(char *, ruleTree));
+		pfree(unconstify(struct varlena *, ruleTree));
 
 		/*
 		 * If this is a SELECT rule defining a view, and the view has
@@ -4529,11 +4529,20 @@ AttrDefaultFetch(Relation relation, int ndef)
 		else
 		{
 			/* detoast and convert to cstring in caller's context */
-			char	   *s = TextDatumGetCString(val);
+			NodeTree	nt = DatumGetNodeTree(val);
+			void	   *new;
+			MemoryContext prev;
+
+			prev = MemoryContextSwitchTo(CacheMemoryContext);
+			new = palloc(VARSIZE(nt));
+			memcpy(new, nt, VARSIZE(nt));
 
 			attrdef[found].adnum = adform->adnum;
-			attrdef[found].adbin = MemoryContextStrdup(CacheMemoryContext, s);
-			pfree(s);
+			attrdef[found].adbin = new;
+
+			MemoryContextSwitchTo(prev);
+
+			pfree(unconstify(struct varlena *, nt));
 			found++;
 		}
 	}
@@ -4634,11 +4643,19 @@ CheckConstraintFetch(Relation relation)
 				 RelationGetRelationName(relation));
 		else
 		{
-			/* detoast and convert to cstring in caller's context */
-			char	   *s = TextDatumGetCString(val);
+			/* detoast in caller's context, then move */
+			NodeTree	nt = DatumGetNodeTree(val);
+			void	   *new;
+			MemoryContext	prev;
 
-			check[found].ccbin = MemoryContextStrdup(CacheMemoryContext, s);
-			pfree(s);
+			prev = MemoryContextSwitchTo(CacheMemoryContext);
+
+			new = palloc(VARSIZE(nt));
+			memcpy(new, nt, VARSIZE(nt));
+			check[found].ccbin = new;
+
+			MemoryContextSwitchTo(prev);
+			pfree(unconstify(struct varlena *, nt));
 			found++;
 		}
 	}
@@ -5064,7 +5081,7 @@ RelationGetIndexExpressions(Relation relation)
 	Assert(!isnull);
 	exprsTree = DatumGetNodeTree(exprsDatum);
 	result = (List *) nodeTreeToNode(exprsTree);
-	pfree(unconstify(char *, exprsTree));
+	pfree(unconstify(struct varlena *, exprsTree));
 
 	/*
 	 * Run the expressions through eval_const_expressions. This is not just an
@@ -5116,7 +5133,7 @@ RelationGetDummyIndexExpressions(Relation relation)
 	Assert(!isnull);
 	exprsTree = DatumGetNodeTree(exprsDatum);
 	rawExprs = (List *) nodeTreeToNode(exprsTree);
-	pfree(unconstify(char *, exprsTree));
+	pfree(unconstify(struct varlena *, exprsTree));
 
 	/* Construct null Consts; the typlen and typbyval are arbitrary. */
 	result = NIL;
@@ -5177,7 +5194,7 @@ RelationGetIndexPredicate(Relation relation)
 	Assert(!isnull);
 	predTree = DatumGetNodeTree(predDatum);
 	result = (List *) nodeTreeToNode(predTree);
-	pfree(unconstify(char *, predTree));
+	pfree(unconstify(struct varlena *, predTree));
 
 	/*
 	 * Run the expression through const-simplification and canonicalization.

@@ -15,6 +15,7 @@
 
 #include "postgres.h"
 
+#include "fmgr.h"
 #include "miscadmin.h"
 #include "utils/datum.h"
 
@@ -41,6 +42,10 @@
 /* Copy a field that is a pointer to a C string, or perhaps NULL */
 #define COPY_STRING_FIELD(fldname) \
 	(newnode->fldname = from->fldname ? pstrdup(from->fldname) : (char *) NULL)
+
+/* Copy a field that is a pointer to a varlena value, or perhaps NULL */
+#define COPY_VARLENA_FIELD(fldname) \
+	(newnode->fldname = from->fldname ? pg_detoast_datum_copy(unconstify(struct varlena *, from->fldname)) : (Datum) 0)
 
 /* Copy a field that is an inline array */
 #define COPY_ARRAY_FIELD(fldname) \

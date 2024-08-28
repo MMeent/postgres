@@ -88,7 +88,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	/* now can free some of the stuff allocated above */
 	pfree(DatumGetPointer(values[Anum_pg_attrdef_adbin - 1]));
 	heap_freetuple(tuple);
-	pfree(unconstify(char *, adbin));
+	pfree(unconstify(struct varlena *, adbin));
 
 	/*
 	 * Update the pg_attribute entry for the column to show that a default

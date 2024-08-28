@@ -856,7 +856,7 @@ DefineDomain(CreateDomainStmt *stmt)
 	datum = SysCacheGetAttr(TYPEOID, typeTup,
 							Anum_pg_type_typdefaultbin, &isnull);
 	if (!isnull)
-		defaultValueBin = TextDatumGetCString(datum);
+		defaultValueBin = DatumGetNodeTree(datum);
 
 	/*
 	 * Run through constraints manually to avoid the additional processing
@@ -3043,7 +3043,7 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 	HeapTuple	tup;
 	Form_pg_constraint con;
 	Form_pg_constraint copy_con;
-	char	   *conbin;
+	NodeTree	conbin;
 	SysScanDesc scan;
 	Datum		val;
 	HeapTuple	tuple;
@@ -3101,7 +3101,7 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 						constrName, TypeNameToString(typename))));
 
 	val = SysCacheGetAttrNotNull(CONSTROID, tuple, Anum_pg_constraint_conbin);
-	conbin = TextDatumGetCString(val);
+	conbin = DatumGetNodeTree(val);
 
 	validateDomainCheckConstraint(domainoid, conbin);
 
