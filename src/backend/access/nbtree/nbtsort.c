@@ -368,6 +368,7 @@ _bt_spools_heapscan(Relation heap, Relation index, BTBuildState *buildstate,
 	BTSpool    *btspool = (BTSpool *) palloc0(sizeof(BTSpool));
 	SortCoordinate coordinate = NULL;
 	double		reltuples = 0;
+	bool		deduplicate;
 
 	/*
 	 * We size the sort area as maintenance_work_mem rather than work_mem to
@@ -382,6 +383,13 @@ _bt_spools_heapscan(Relation heap, Relation index, BTBuildState *buildstate,
 
 	/* Save as primary spool */
 	buildstate->spool = btspool;
+
+	/*
+	 * spool-level deduplication can be useful, but is only useful if
+	 * deduplication is safe
+	 */
+	deduplicate = _bt_allequalimage(index, true) && !indexInfo->ii_Unique
+		&& BTGetDeduplicateItems(index);
 
 	/* Report table scan phase started */
 	pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE,
@@ -430,7 +438,7 @@ _bt_spools_heapscan(Relation heap, Relation index, BTBuildState *buildstate,
 		tuplesort_begin_index_btree(heap, index, buildstate->isunique,
 									buildstate->nulls_not_distinct,
 									maintenance_work_mem, coordinate,
-									TUPLESORT_NONE);
+									TUPLESORT_NONE, deduplicate);
 
 	/*
 	 * If building a unique index, put dead tuples in a second spool to keep
@@ -464,12 +472,18 @@ _bt_spools_heapscan(Relation heap, Relation index, BTBuildState *buildstate,
 		}
 
 		/*
+		 * The index is a unique index, so deduplication is unlikely to be
+		 * (very) effective, and thus likely wasteful.
+		 */
+		Assert(!deduplicate);
+
+		/*
 		 * We expect that the second one (for dead tuples) won't get very
 		 * full, so we give it only work_mem
 		 */
 		buildstate->spool2->sortstate =
 			tuplesort_begin_index_btree(heap, index, false, false, work_mem,
-										coordinate2, TUPLESORT_NONE);
+										coordinate2, TUPLESORT_NONE, false);
 	}
 
 	/* Fill spool using either serial or parallel heap scan */
@@ -1163,6 +1177,8 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 		/* the preparation of merge */
 		itup = tuplesort_getindextuple(btspool->sortstate, true);
 		itup2 = tuplesort_getindextuple(btspool2->sortstate, true);
+
+		Assert(!deduplicate);
 
 		/* Prepare SortSupport data for each column */
 		sortKeys = (SortSupport) palloc0(keysz * sizeof(SortSupportData));
@@ -1887,7 +1903,7 @@ _bt_parallel_scan_and_sort(BTSpool *btspool, BTSpool *btspool2,
 													 btspool->isunique,
 													 btspool->nulls_not_distinct,
 													 sortmem, coordinate,
-													 TUPLESORT_NONE);
+													 TUPLESORT_NONE, false);
 
 	/*
 	 * Just as with serial case, there may be a second spool.  If so, a
@@ -1910,7 +1926,7 @@ _bt_parallel_scan_and_sort(BTSpool *btspool, BTSpool *btspool2,
 		btspool2->sortstate =
 			tuplesort_begin_index_btree(btspool->heap, btspool->index, false, false,
 										Min(sortmem, work_mem), coordinate2,
-										false);
+										false, false);
 	}
 
 	/* Fill in buildstate for _bt_build_callback() */

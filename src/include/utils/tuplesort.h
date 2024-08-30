@@ -433,12 +433,9 @@ extern Tuplesortstate *tuplesort_begin_cluster(TupleDesc tupDesc,
 											   Relation indexRel, int workMem,
 											   SortCoordinate coordinate,
 											   int sortopt);
-extern Tuplesortstate *tuplesort_begin_index_btree(Relation heapRel,
-												   Relation indexRel,
-												   bool enforceUnique,
-												   bool uniqueNullsNotDistinct,
-												   int workMem, SortCoordinate coordinate,
-												   int sortopt);
+extern Tuplesortstate *
+tuplesort_begin_index_btree(Relation heapRel, Relation indexRel, bool enforceUnique, bool uniqueNullsNotDistinct,
+							int workMem, SortCoordinate coordinate, int sortopt, bool deduplicate);
 extern Tuplesortstate *tuplesort_begin_index_hash(Relation heapRel,
 												  Relation indexRel,
 												  uint32 high_mask,

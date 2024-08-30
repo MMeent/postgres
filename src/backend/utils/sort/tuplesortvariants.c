@@ -49,43 +49,52 @@ static void removeabbrev_index_brin(Tuplesortstate *state, SortTuple *stups,
 static void removeabbrev_datum(Tuplesortstate *state, SortTuple *stups,
 							   int count);
 static int	comparetup_heap(const SortTuple *a, const SortTuple *b,
-							Tuplesortstate *state);
+							  Tuplesortstate *state);
 static int	comparetup_heap_tiebreak(const SortTuple *a, const SortTuple *b,
-									 Tuplesortstate *state);
+									   Tuplesortstate *state);
 static void writetup_heap(Tuplesortstate *state, LogicalTape *tape,
 						  SortTuple *stup);
 static void readtup_heap(Tuplesortstate *state, SortTuple *stup,
 						 LogicalTape *tape, unsigned int len);
 static int	comparetup_cluster(const SortTuple *a, const SortTuple *b,
-							   Tuplesortstate *state);
+								 Tuplesortstate *state);
 static int	comparetup_cluster_tiebreak(const SortTuple *a, const SortTuple *b,
-										Tuplesortstate *state);
+										  Tuplesortstate *state);
 static void writetup_cluster(Tuplesortstate *state, LogicalTape *tape,
 							 SortTuple *stup);
 static void readtup_cluster(Tuplesortstate *state, SortTuple *stup,
 							LogicalTape *tape, unsigned int tuplen);
 static int	comparetup_index_btree(const SortTuple *a, const SortTuple *b,
-								   Tuplesortstate *state);
+									 Tuplesortstate *state);
 static int	comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,
-											Tuplesortstate *state);
-static int	comparetup_index_hash(const SortTuple *a, const SortTuple *b,
-								  Tuplesortstate *state);
-static int	comparetup_index_hash_tiebreak(const SortTuple *a, const SortTuple *b,
+											  Tuplesortstate *state);
+static int	comparetup_index_btree_dedup(const SortTuple *a,
+										   const SortTuple *b,
 										   Tuplesortstate *state);
+static int	comparetup_index_btree_dedup_tiebreak(const SortTuple *a,
+													const SortTuple *b,
+													Tuplesortstate *state);
+static int	comparetup_index_hash(const SortTuple *a, const SortTuple *b,
+									Tuplesortstate *state);
+static int	comparetup_index_hash_tiebreak(const SortTuple *a, const SortTuple *b,
+											 Tuplesortstate *state);
 static int	comparetup_index_brin(const SortTuple *a, const SortTuple *b,
-								  Tuplesortstate *state);
+									Tuplesortstate *state);
 static void writetup_index(Tuplesortstate *state, LogicalTape *tape,
 						   SortTuple *stup);
 static void readtup_index(Tuplesortstate *state, SortTuple *stup,
 						  LogicalTape *tape, unsigned int len);
+static void writetup_btree_dedup(Tuplesortstate *state, LogicalTape *tape,
+								 SortTuple *stup);
+static void flushwrites_btree_dedup(Tuplesortstate *state, LogicalTape *tape);
 static void writetup_index_brin(Tuplesortstate *state, LogicalTape *tape,
 								SortTuple *stup);
 static void readtup_index_brin(Tuplesortstate *state, SortTuple *stup,
 							   LogicalTape *tape, unsigned int len);
 static int	comparetup_datum(const SortTuple *a, const SortTuple *b,
-							 Tuplesortstate *state);
+							   Tuplesortstate *state);
 static int	comparetup_datum_tiebreak(const SortTuple *a, const SortTuple *b,
-									  Tuplesortstate *state);
+										Tuplesortstate *state);
 static void writetup_datum(Tuplesortstate *state, LogicalTape *tape,
 						   SortTuple *stup);
 static void readtup_datum(Tuplesortstate *state, SortTuple *stup,
@@ -123,7 +132,24 @@ typedef struct
 
 	bool		enforceUnique;	/* complain if we find duplicate tuples */
 	bool		uniqueNullsNotDistinct; /* unique constraint null treatment */
+	/* Used by btree deduplication */
+	bool		tidTiebreak;	/* was the last compare result a TID tiebreak? */
+	SortTuple	bufferedTuple;	/* buffered index tuple, in .tupleBuffer */
+	void	   *tupleBuffer;	/* buffer for deduplication */
 } TuplesortIndexBTreeArg;
+
+/* Buffer for merging btree duplicates. */
+#define BT_TUPLE_WRITE_BUFFER_SIZE	(1024)
+/* We should merge tuples only up to an allowed size for btree pages */
+#define TARGET_POSTING_TUPLE_SIZE	\
+	(Min(BT_TUPLE_WRITE_BUFFER_SIZE, BTMaxItemSizeForPageSize(BLCKSZ)))
+
+/*
+ * We only buffer new incoming tuples if they are small enough to fit 2 more
+ * TIDs */
+#define CAN_BUFFER_TUPLE(tupsize)	( \
+	(tupsize) < (TARGET_POSTING_TUPLE_SIZE - 2 * sizeof(ItemPointerData)) \
+)
 
 /*
  * Data structure pointed by "TuplesortPublic.arg" for the index_hash subcase.
@@ -334,7 +360,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 		Assert(sortKey->ssup_attno != 0);
 
 		strategy = (scanKey->sk_flags & SK_BT_DESC) != 0 ?
-			BTGreaterStrategyNumber : BTLessStrategyNumber;
+				   BTGreaterStrategyNumber : BTLessStrategyNumber;
 
 		PrepareSortSupportFromIndexRel(indexRel, strategy, sortKey);
 	}
@@ -353,7 +379,8 @@ tuplesort_begin_index_btree(Relation heapRel,
 							bool uniqueNullsNotDistinct,
 							int workMem,
 							SortCoordinate coordinate,
-							int sortopt)
+							int sortopt,
+							bool deduplicate)
 {
 	Tuplesortstate *state = tuplesort_begin_common(workMem, coordinate,
 												   sortopt);
@@ -382,10 +409,34 @@ tuplesort_begin_index_btree(Relation heapRel,
 								PARALLEL_SORT(coordinate));
 
 	base->removeabbrev = removeabbrev_index;
-	base->comparetup = comparetup_index_btree;
-	base->comparetup_tiebreak = comparetup_index_btree_tiebreak;
-	base->writetup = writetup_index;
-	base->flushwrites = NULL;
+
+	if (deduplicate)
+	{
+		base->writetup = writetup_btree_dedup;
+		base->flushwrites = flushwrites_btree_dedup;
+		base->comparetup = comparetup_index_btree_dedup;
+		base->comparetup_tiebreak = comparetup_index_btree_dedup_tiebreak;
+		/*
+		 * This buffer is twice the size of tuplesort's SLAB_SLOT_SIZE, so
+		 * that it can always fit 2 deduplicated tuples worth of TIDs to
+		 * merge.
+		 */
+		arg->tupleBuffer = palloc(BT_TUPLE_WRITE_BUFFER_SIZE);
+		arg->tidTiebreak = false;
+		arg->bufferedTuple.tuple = NULL;
+		arg->bufferedTuple.datum1 = (Datum) 0;
+		arg->bufferedTuple.isnull1 = false;
+		arg->bufferedTuple.srctape = -1;
+	}
+	else
+	{
+		base->writetup = writetup_index;
+		base->flushwrites = NULL;
+		base->comparetup = comparetup_index_btree;
+		base->comparetup_tiebreak = comparetup_index_btree_tiebreak;
+		arg->tupleBuffer = NULL;
+	}
+
 	base->readtup = readtup_index;
 	base->haveDatum1 = true;
 	base->arg = arg;
@@ -418,7 +469,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 		Assert(sortKey->ssup_attno != 0);
 
 		strategy = (scanKey->sk_flags & SK_BT_DESC) != 0 ?
-			BTGreaterStrategyNumber : BTLessStrategyNumber;
+				   BTGreaterStrategyNumber : BTLessStrategyNumber;
 
 		PrepareSortSupportFromIndexRel(indexRel, strategy, sortKey);
 	}
@@ -1064,7 +1115,7 @@ removeabbrev_heap(Tuplesortstate *state, SortTuple *stups, int count)
 		HeapTupleData htup;
 
 		htup.t_len = ((MinimalTuple) stups[i].tuple)->t_len +
-			MINIMAL_TUPLE_OFFSET;
+					 MINIMAL_TUPLE_OFFSET;
 		htup.t_data = (HeapTupleHeader) ((char *) stups[i].tuple -
 										 MINIMAL_TUPLE_OFFSET);
 		stups[i].datum1 = heap_getattr(&htup,
@@ -1105,9 +1156,9 @@ comparetup_heap_tiebreak(const SortTuple *a, const SortTuple *b, Tuplesortstate 
 	int32		compare;
 	AttrNumber	attno;
 	Datum		datum1,
-				datum2;
+		datum2;
 	bool		isnull1,
-				isnull2;
+		isnull2;
 
 	ltup.t_len = ((MinimalTuple) a->tuple)->t_len + MINIMAL_TUPLE_OFFSET;
 	ltup.t_data = (HeapTupleHeader) ((char *) a->tuple - MINIMAL_TUPLE_OFFSET);
@@ -1250,9 +1301,9 @@ comparetup_cluster_tiebreak(const SortTuple *a, const SortTuple *b,
 	int			nkey;
 	int32		compare = 0;
 	Datum		datum1,
-				datum2;
+		datum2;
 	bool		isnull1,
-				isnull2;
+		isnull2;
 
 	ltup = (HeapTuple) a->tuple;
 	rtup = (HeapTuple) b->tuple;
@@ -1367,7 +1418,7 @@ readtup_cluster(Tuplesortstate *state, SortTuple *stup,
 	TuplesortClusterArg *arg = (TuplesortClusterArg *) base->arg;
 	unsigned int t_len = tuplen - sizeof(ItemPointerData) - sizeof(int);
 	HeapTuple	tuple = (HeapTuple) tuplesort_readtup_alloc(state,
-															t_len + HEAPTUPLESIZE);
+															 t_len + HEAPTUPLESIZE);
 
 	/* Reconstruct the HeapTupleData header */
 	tuple->t_data = (HeapTupleHeader) ((char *) tuple + HEAPTUPLESIZE);
@@ -1470,9 +1521,9 @@ comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,
 	int			nkey;
 	int32		compare;
 	Datum		datum1,
-				datum2;
+		datum2;
 	bool		isnull1,
-				isnull2;
+		isnull2;
 
 	tuple1 = (IndexTuple) a->tuple;
 	tuple2 = (IndexTuple) b->tuple;
@@ -1542,12 +1593,12 @@ comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,
 
 		ereport(ERROR,
 				(errcode(ERRCODE_UNIQUE_VIOLATION),
-				 errmsg("could not create unique index \"%s\"",
-						RelationGetRelationName(arg->index.indexRel)),
-				 key_desc ? errdetail("Key %s is duplicated.", key_desc) :
-				 errdetail("Duplicate keys exist."),
-				 errtableconstraint(arg->index.heapRel,
-									RelationGetRelationName(arg->index.indexRel))));
+					errmsg("could not create unique index \"%s\"",
+						   RelationGetRelationName(arg->index.indexRel)),
+					key_desc ? errdetail("Key %s is duplicated.", key_desc) :
+					errdetail("Duplicate keys exist."),
+					errtableconstraint(arg->index.heapRel,
+									   RelationGetRelationName(arg->index.indexRel))));
 	}
 
 	/*
@@ -1566,6 +1617,170 @@ comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,
 	{
 		OffsetNumber pos1 = ItemPointerGetOffsetNumber(&tuple1->t_tid);
 		OffsetNumber pos2 = ItemPointerGetOffsetNumber(&tuple2->t_tid);
+
+		if (pos1 != pos2)
+			return (pos1 < pos2) ? -1 : 1;
+	}
+
+	/* ItemPointer values should never be equal */
+	Assert(false);
+
+	return 0;
+}
+
+static int
+comparetup_index_btree_dedup(const SortTuple *a, const SortTuple *b,
+							 Tuplesortstate *state)
+{
+	/*
+	 * This is similar to comparetup_heap(), but expects index tuples.  There
+	 * is also special handling for enforcing uniqueness, and special
+	 * treatment for equal keys at the end.
+	 */
+	TuplesortPublic *base = TuplesortstateGetPublic(state);
+	SortSupport sortKey = base->sortKeys;
+	int32		compare;
+
+	/* Compare the leading sort key */
+	compare = ApplySortComparator(a->datum1, a->isnull1,
+								  b->datum1, b->isnull1,
+								  sortKey);
+	if (compare != 0)
+		return compare;
+
+	/* Compare additional sort keys */
+	return comparetup_index_btree_dedup_tiebreak(a, b, state);
+}
+
+static int
+comparetup_index_btree_dedup_tiebreak(const SortTuple *a, const SortTuple *b,
+									  Tuplesortstate *state)
+{
+	TuplesortPublic *base = TuplesortstateGetPublic(state);
+	TuplesortIndexBTreeArg *arg = (TuplesortIndexBTreeArg *) base->arg;
+	SortSupport sortKey = base->sortKeys;
+	IndexTuple	tuple1;
+	IndexTuple	tuple2;
+	ItemPointer	pointer1;
+	ItemPointer	pointer2;
+	int			keysz;
+	TupleDesc	tupDes;
+	bool		equal_hasnull = false;
+	int			nkey;
+	int32		compare;
+	Datum		datum1,
+		datum2;
+	bool		isnull1,
+		isnull2;
+
+	tuple1 = (IndexTuple) a->tuple;
+	tuple2 = (IndexTuple) b->tuple;
+	keysz = base->nKeys;
+	tupDes = RelationGetDescr(arg->index.indexRel);
+
+	if (sortKey->abbrev_converter)
+	{
+		datum1 = index_getattr(tuple1, 1, tupDes, &isnull1);
+		datum2 = index_getattr(tuple2, 1, tupDes, &isnull2);
+
+		compare = ApplySortAbbrevFullComparator(datum1, isnull1,
+												datum2, isnull2,
+												sortKey);
+		if (compare != 0)
+			return compare;
+	}
+
+	/* they are equal, so we only need to examine one null flag */
+	if (a->isnull1)
+		equal_hasnull = true;
+
+	sortKey++;
+	for (nkey = 2; nkey <= keysz; nkey++, sortKey++)
+	{
+		datum1 = index_getattr(tuple1, nkey, tupDes, &isnull1);
+		datum2 = index_getattr(tuple2, nkey, tupDes, &isnull2);
+
+		compare = ApplySortComparator(datum1, isnull1,
+									  datum2, isnull2,
+									  sortKey);
+		if (compare != 0)
+			return compare;		/* done when we find unequal attributes */
+
+		/* they are equal, so we only need to examine one null flag */
+		if (isnull1)
+			equal_hasnull = true;
+	}
+
+	/*
+	 * If btree has asked us to enforce uniqueness, complain if two equal
+	 * tuples are detected (unless there was at least one NULL field and NULLS
+	 * NOT DISTINCT was not set).
+	 *
+	 * It is sufficient to make the test here, because if two tuples are equal
+	 * they *must* get compared at some stage of the sort --- otherwise the
+	 * sort algorithm wouldn't have checked whether one must appear before the
+	 * other.
+	 */
+	if (arg->enforceUnique && !(!arg->uniqueNullsNotDistinct && equal_hasnull))
+	{
+		Datum		values[INDEX_MAX_KEYS];
+		bool		isnull[INDEX_MAX_KEYS];
+		char	   *key_desc;
+
+		/*
+		 * Some rather brain-dead implementations of qsort (such as the one in
+		 * QNX 4) will sometimes call the comparison routine to compare a
+		 * value to itself, but we always use our own implementation, which
+		 * does not.
+		 */
+		Assert(tuple1 != tuple2);
+
+		index_deform_tuple(tuple1, tupDes, values, isnull);
+
+		key_desc = BuildIndexValueDescription(arg->index.indexRel, values, isnull);
+
+		ereport(ERROR,
+				(errcode(ERRCODE_UNIQUE_VIOLATION),
+					errmsg("could not create unique index \"%s\"",
+						   RelationGetRelationName(arg->index.indexRel)),
+					key_desc ? errdetail("Key %s is duplicated.", key_desc) :
+					errdetail("Duplicate keys exist."),
+					errtableconstraint(arg->index.heapRel,
+									   RelationGetRelationName(arg->index.indexRel))));
+	}
+
+	arg->tidTiebreak = true;
+
+	/*
+	 * While BTreeTupleGetHeapTID would also cater this purpose, we don't
+	 * need the IsPivot path therein, so we open-code our pivot-less path
+	 * here.
+	 */
+	if (BTreeTupleIsPosting(tuple1))
+		pointer1 = BTreeTupleGetPosting(tuple1);
+	else
+		pointer1 = &tuple1->t_tid;
+
+	if (BTreeTupleIsPosting(tuple2))
+		pointer2 = BTreeTupleGetPosting(tuple2);
+	else
+		pointer2 = &tuple2->t_tid;
+	/*
+	 * If key values are equal, we sort on ItemPointer.  This is required for
+	 * btree indexes, since heap TID is treated as an implicit last key
+	 * attribute in order to ensure that all keys in the index are physically
+	 * unique.
+	 */
+	{
+		BlockNumber blk1 = ItemPointerGetBlockNumber(pointer1);
+		BlockNumber blk2 = ItemPointerGetBlockNumber(pointer2);
+
+		if (blk1 != blk2)
+			return (blk1 < blk2) ? -1 : 1;
+	}
+	{
+		OffsetNumber pos1 = ItemPointerGetOffsetNumber(pointer1);
+		OffsetNumber pos2 = ItemPointerGetOffsetNumber(pointer2);
 
 		if (pos1 != pos2)
 			return (pos1 < pos2) ? -1 : 1;
@@ -1694,6 +1909,284 @@ readtup_index(Tuplesortstate *state, SortTuple *stup,
 								 1,
 								 RelationGetDescr(arg->indexRel),
 								 &stup->isnull1);
+}
+
+static int32
+tidcmp(const void *a, const void *b)
+{
+	ItemPointer iptr1 = ((const ItemPointer) a);
+	ItemPointer iptr2 = ((const ItemPointer) b);
+
+	return ItemPointerCompare(iptr1, iptr2);
+}
+
+/*
+ * Write nbtree tuples to disk, with deduplication.
+ *
+ * Notes:
+ *  - This deduplication only creates tuples up to 1024 bytes in size.
+ */
+static void
+writetup_btree_dedup(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
+{
+	TuplesortPublic *base = TuplesortstateGetPublic(state);
+	ItemPointer	tupletids;
+	ItemPointer	buftids;
+	IndexTuple	tuple = (IndexTuple) stup->tuple;
+	TuplesortIndexBTreeArg *arg = base->arg;
+	IndexTuple	buftup = (IndexTuple) arg->bufferedTuple.tuple;
+	int			bufpostoff,
+				buftupsize,
+				newbuftupsize,
+				bufnposting,
+				maxtuptids,
+				tupnposting,
+				tupsize = IndexTupleSize(tuple);
+	bool		bufoverflowed = false;
+
+	/*
+	 * If we don't have a buffered tuple, we can either buffer it (when it's
+	 * small enough for that) or immediately write it out to disk.
+	 */
+	if (!PointerIsValid(buftup))
+	{
+		if (CAN_BUFFER_TUPLE(tupsize))
+		{
+			SortTuple *bufstup = &arg->bufferedTuple;
+			memcpy(arg->tupleBuffer, tuple, tupsize);
+			bufstup->tuple = arg->tupleBuffer;
+			bufstup->datum1 = index_getattr(bufstup->tuple, 1,
+											arg->index.indexRel->rd_att,
+											&bufstup->isnull1);
+		}
+		else
+		{
+			writetup_index(state, tape, stup);
+		}
+		return;
+	}
+
+	/* We now know we have a tuple in the buffer */
+
+	/*
+	 * We can't use comparetup result directly, as it will always be <0 due
+	 * to strict sorting and we're writing things in order.
+	 * Instead, we can use the side effect of comparetup, which sets
+	 * tidTiebreak if it used the TID as tiebreak, indicating all other
+	 * attributes were equal.
+	 */
+	arg->tidTiebreak = false;
+
+	comparetup_index_btree_dedup(&arg->bufferedTuple, stup, state);
+
+	if (!arg->tidTiebreak)
+	{
+		/*
+		 * The current buffered tuple's attributes aren't equal to the
+		 * incoming tuple's key attributes, so we flush the old tuple, and
+		 * then try to buffer the incoming tuple.
+		 */
+		SortTuple *bufstup = &arg->bufferedTuple;
+		writetup_index(state, tape, &arg->bufferedTuple);
+
+		/*
+		 * We buffer and deduplicate tuples only up to a tuple size of 1024B,
+		 * so that they fit in SLAB_SLOT_SIZE. If it doesn't fit, we
+		 * immediately write the data to disk, as their memory is immediately
+		 * freed.
+		 */
+		if (CAN_BUFFER_TUPLE(tupsize))
+		{
+			memcpy(arg->tupleBuffer, tuple, tupsize);
+			bufstup->tuple = arg->tupleBuffer;
+			bufstup->datum1 = index_getattr(bufstup->tuple, 1,
+											arg->index.indexRel->rd_att,
+											&bufstup->isnull1);
+		}
+		else
+		{
+			writetup_index(state, tape, stup);
+			bufstup->tuple = NULL;
+			bufstup->datum1 = (Datum) 0;
+			bufstup->isnull1 = false;
+		}
+		return;
+	}
+
+	/*
+	 * Now that we're here, the incoming tuple has key attributes equal to
+	 * those of the buffered tuple.
+	 */
+
+	/*
+	 * First, we make sure the buffered tuple is a posting list.
+	 *
+	 * This unifies handling of the data below.
+	 */
+	if (BTreeTupleIsPosting(buftup))
+	{
+		bufpostoff = BTreeTupleGetPostingOffset(buftup);
+		bufnposting = BTreeTupleGetNPosting(buftup);
+		buftupsize = IndexTupleSize(buftup);
+	}
+	else
+	{
+		ItemPointerData bufptr = buftup->t_tid;
+		bufnposting = 1;
+		buftupsize = IndexTupleSize(buftup);
+		bufpostoff = buftupsize;
+	}
+
+	Assert(MAXALIGN(buftupsize) == buftupsize);
+
+	buftids = (ItemPointer) ((char *) buftup + bufpostoff);
+
+	maxtuptids = (BT_TUPLE_WRITE_BUFFER_SIZE - bufpostoff)
+		/ sizeof(ItemPointerData);
+
+	Assert(maxtuptids > 1);
+
+	/*
+	 * Now we copy all new incoming TIDs into the posting list, and sort the
+	 * list.
+	 * We also have to keep track of the incoming tuple's minimum TID, as we
+	 * can still receive any number of TIDs higher than that from future
+	 * tuples, so we can only flush those TIDs that we know we can't get new
+	 * ones of.
+	 */
+	if (BTreeTupleIsPosting(tuple))
+	{
+		tupnposting = BTreeTupleGetNPosting(tuple);
+		tupletids = BTreeTupleGetPosting(tuple);
+	}
+	else
+	{
+		tupnposting = 1;
+		tupletids = &tuple->t_tid;
+	}
+
+	/*
+	 * If there are more TIDs total than can fit in the buffer, we merge
+	 * all TIDs that can fit, causing us to only partially merge the tuples.
+	 *
+	 * Note that, in the case of partial merge, we can't merge the lowest
+	 * TID of the incoming tuple, as the next tuple may contain a TID
+	 * that's just one higher than that.
+	 */
+	if (unlikely(maxtuptids < tupnposting + bufnposting))
+	{
+		/*
+		 * We flush if there's not enough space for even 1 TID left, so
+		 * incoming tuple must've had more than 1 TID
+		 */
+		Assert(BTreeTupleIsPosting(tuple));
+		bufoverflowed = true;
+
+		tupletids += 1;
+		tupnposting = maxtuptids - bufnposting;
+		Assert(tupnposting > 0);
+	}
+
+	/* Copy the to-be-added TIDs into the buffer */
+	memcpy(&buftids[bufnposting],
+		   tupletids,
+		   sizeof(ItemPointerData) * tupnposting);
+
+	/*
+	 * If the tail of the previous posting list orders lower than the added
+	 * posting list's first item we don't have to sort the list again.
+	 */
+	if (ItemPointerCompare(&buftids[bufnposting - 1], tupletids) < 0)
+	{
+		/* Mergesort the tids if they have overlap. This should be rare. */
+		qsort(buftids, bufnposting + tupnposting,
+			  sizeof(ItemPointerData), tidcmp);
+	}
+
+	/* Re-calculate the buffered tuple's size */
+	newbuftupsize = bufpostoff;
+	newbuftupsize += (bufnposting + tupnposting) * sizeof(ItemPointerData);
+
+	/* Update the buffered tuple's size info */
+	BTreeTupleSetPosting(buftup, bufnposting + tupnposting,
+						 bufpostoff);
+	buftup->t_info &= ~INDEX_SIZE_MASK;
+	buftup->t_info |= MAXALIGN(newbuftupsize);
+
+	if (MAXALIGN(newbuftupsize + sizeof(ItemPointerData)) <= BT_TUPLE_WRITE_BUFFER_SIZE)
+	{
+		/* there's space for another tuple */
+		Assert(!bufoverflowed);
+		return;
+	}
+
+	/* clear out bytes of last maxalign quantum */
+	if (MAXALIGN(newbuftupsize) != newbuftupsize)
+	{
+		memset((char *) arg->tupleBuffer + newbuftupsize,
+			   0, MAXALIGN(newbuftupsize) - newbuftupsize);
+	}
+
+	writetup_index(state, tape, &arg->bufferedTuple);
+
+	if (bufoverflowed)
+	{
+		/*
+		 * We now have to move the new TIDs into the old tuple.
+		 * Remember that we only put the TIDs from index 1..=tupnposting
+		 * into the now-flushed tuple, so we have to copy TIDs at index 0
+		 * and after tupnposting.
+		 */
+		int		newntids = BTreeTupleGetNPosting(tuple) - tupnposting;
+
+		tupletids = BTreeTupleGetPosting(tuple);
+		buftids[0] = tupletids[0];
+		memcpy(&buftids[1],
+			   &tupletids[tupnposting + 1],
+			   newntids - 1);
+
+		newbuftupsize = bufpostoff;
+		newbuftupsize += newntids * sizeof(ItemPointerData);
+
+		/* Update buffered tuple's info */
+		BTreeTupleSetPosting(buftup, newntids, bufpostoff);
+		buftup->t_info &= ~INDEX_SIZE_MASK;
+		buftup->t_info |= MAXALIGN(newbuftupsize);
+
+		/* clear out final bytes of trailing maxalign quantum */
+		if (MAXALIGN(newbuftupsize) != newbuftupsize)
+		{
+			memset((char *) arg->tupleBuffer + newbuftupsize,
+				   0, MAXALIGN(newbuftupsize) - newbuftupsize);
+		}
+	}
+	else
+	{
+		/*
+		 * No tids in the tuple, so make sure it isn't considered enough of a
+		 * tuple that we might consider writing to disk
+		 */
+		arg->bufferedTuple.tuple = NULL;
+		arg->bufferedTuple.datum1 = 0;
+		arg->bufferedTuple.isnull1 = false;
+	}
+}
+
+static void
+flushwrites_btree_dedup(Tuplesortstate *state, LogicalTape *tape)
+{
+	TuplesortPublic *base = TuplesortstateGetPublic(state);
+	TuplesortIndexBTreeArg *arg = base->arg;
+
+	if (PointerIsValid(arg->bufferedTuple.tuple))
+	{
+		writetup_index(state, tape, &arg->bufferedTuple);
+	}
+
+	arg->bufferedTuple.tuple = NULL;
+	arg->bufferedTuple.datum1 = (Datum) 0;
+	arg->bufferedTuple.isnull1 = false;
+	arg->bufferedTuple.srctape = -1;
 }
 
 /*
