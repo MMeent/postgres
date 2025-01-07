@@ -114,6 +114,10 @@ _bt_doinsert(Relation rel, IndexTuple itup,
 
 	if (checkingunique)
 	{
+		/*
+		 * Note: indnullsnotdistinct causes itup_key->anynullkeys to always be
+		 * false; to force uniqueness checks.
+		 */
 		if (!itup_key->anynullkeys)
 		{
 			/* No (heapkeyspace) scantid until uniqueness established */
