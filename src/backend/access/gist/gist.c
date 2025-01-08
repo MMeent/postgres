@@ -26,20 +26,26 @@
 #include "utils/index_selfuncs.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
+#include "access/tableam.h"
+#include "common/int.h"
 
 /* non-export function prototypes */
 static void gistfixsplit(GISTInsertState *state, GISTSTATE *giststate);
 static bool gistinserttuple(GISTInsertState *state, GISTInsertStack *stack,
 							GISTSTATE *giststate, IndexTuple tuple, OffsetNumber oldoffnum);
-static bool gistinserttuples(GISTInsertState *state, GISTInsertStack *stack,
-							 GISTSTATE *giststate,
-							 IndexTuple *tuples, int ntup, OffsetNumber oldoffnum,
-							 Buffer leftchild, Buffer rightchild,
-							 bool unlockbuf, bool unlockleftchild);
+static bool
+gistinserttuples(GISTInsertState *state, GISTInsertStack *stack, GISTSTATE *giststate, IndexTuple *tuples, int ntup,
+				 OffsetNumber oldoffnum, Buffer leftchild, Buffer rightchild, bool unlockbuf, bool unlockleftchild,
+				 bool indexUnchanged);
 static void gistfinishsplit(GISTInsertState *state, GISTInsertStack *stack,
 							GISTSTATE *giststate, List *splitinfo, bool unlockbuf);
 static void gistprunepage(Relation rel, Page page, Buffer buffer,
 						  Relation heapRel);
+static void gistbottomupdeladd(Relation rel, Page page, OffsetNumber offnum,
+							   TM_IndexDeleteOp *delstate, GISTSTATE *state);
+static void gistbottomupdelpage(Relation rel, Page page, Buffer buffer,
+								Relation heapRel, GISTSTATE *state,
+								Size needsize);
 
 
 #define ROTATEDIST(d) do { \
@@ -182,7 +188,7 @@ gistinsert(Relation r, Datum *values, bool *isnull,
 	itup = gistFormTuple(giststate, r, values, isnull, true);
 	itup->t_tid = *ht_ctid;
 
-	gistdoinsert(r, itup, 0, giststate, heapRel, false);
+	gistdoinsert(r, itup, 0, giststate, heapRel, false, indexUnchanged);
 
 	/* cleanup */
 	MemoryContextSwitchTo(oldCxt);
@@ -230,7 +236,7 @@ gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
 				List **splitinfo,
 				bool markfollowright,
 				Relation heapRel,
-				bool is_build)
+				bool is_build, bool indexUnchanged)
 {
 	BlockNumber blkno = BufferGetBlockNumber(buffer);
 	Page		page = BufferGetPage(buffer);
@@ -274,6 +280,16 @@ gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
 	if (is_split && GistPageIsLeaf(page) && GistPageHasGarbage(page))
 	{
 		gistprunepage(rel, page, buffer, heapRel);
+		is_split = gistnospace(page, itup, ntup, oldoffnum, freespace);
+	}
+	if (is_split && GistPageIsLeaf(page) && indexUnchanged)
+	{
+		Size	needsize = 0;
+
+		for (int i = 0; i < ntup; i++)
+			needsize += IndexTupleSize(itup[i]);
+
+		gistbottomupdelpage(rel, page, buffer, heapRel, giststate, needsize);
 		is_split = gistnospace(page, itup, ntup, oldoffnum, freespace);
 	}
 
@@ -631,8 +647,8 @@ gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
  * so it does not bother releasing palloc'd allocations.
  */
 void
-gistdoinsert(Relation r, IndexTuple itup, Size freespace,
-			 GISTSTATE *giststate, Relation heapRel, bool is_build)
+gistdoinsert(Relation r, IndexTuple itup, Size freespace, GISTSTATE *giststate,
+			 Relation heapRel, bool is_build, bool indexUnchanged)
 {
 	ItemId		iid;
 	IndexTuple	idxtuple;
@@ -646,6 +662,7 @@ gistdoinsert(Relation r, IndexTuple itup, Size freespace,
 	state.r = r;
 	state.heapRel = heapRel;
 	state.is_build = is_build;
+	state.indexUnchanged = indexUnchanged;
 
 	/* Start from the root */
 	firststack.blkno = GIST_ROOT_BLKNO;
@@ -1249,7 +1266,8 @@ gistinserttuple(GISTInsertState *state, GISTInsertStack *stack,
 				GISTSTATE *giststate, IndexTuple tuple, OffsetNumber oldoffnum)
 {
 	return gistinserttuples(state, stack, giststate, &tuple, 1, oldoffnum,
-							InvalidBuffer, InvalidBuffer, false, false);
+							InvalidBuffer, InvalidBuffer, false, false,
+							state->indexUnchanged);
 }
 
 /* ----------------
@@ -1279,11 +1297,9 @@ gistinserttuple(GISTInsertState *state, GISTInsertStack *stack,
  * sibling of stack->buffer instead of stack->buffer itself.
  */
 static bool
-gistinserttuples(GISTInsertState *state, GISTInsertStack *stack,
-				 GISTSTATE *giststate,
-				 IndexTuple *tuples, int ntup, OffsetNumber oldoffnum,
-				 Buffer leftchild, Buffer rightchild,
-				 bool unlockbuf, bool unlockleftchild)
+gistinserttuples(GISTInsertState *state, GISTInsertStack *stack, GISTSTATE *giststate, IndexTuple *tuples, int ntup,
+				 OffsetNumber oldoffnum, Buffer leftchild, Buffer rightchild, bool unlockbuf, bool unlockleftchild,
+				 bool indexUnchanged)
 {
 	List	   *splitinfo;
 	bool		is_split;
@@ -1303,7 +1319,8 @@ gistinserttuples(GISTInsertState *state, GISTInsertStack *stack,
 							   &splitinfo,
 							   true,
 							   state->heapRel,
-							   state->is_build);
+							   state->is_build,
+							   indexUnchanged);
 
 	/*
 	 * Before recursing up in case the page was split, release locks on the
@@ -1371,7 +1388,7 @@ gistfinishsplit(GISTInsertState *state, GISTInsertStack *stack,
 		if (gistinserttuples(state, stack->parent, giststate,
 							 &right->downlink, 1,
 							 InvalidOffsetNumber,
-							 left->buf, right->buf, false, false))
+							 left->buf, right->buf, false, false, false))
 		{
 			/*
 			 * If the parent page was split, the existing downlink might have
@@ -1397,10 +1414,10 @@ gistfinishsplit(GISTInsertState *state, GISTInsertStack *stack,
 							tuples, 2,
 							stack->downlinkoffnum,
 							left->buf, right->buf,
-							true,	/* Unlock parent */
-							unlockbuf	/* Unlock stack->buffer if caller
+							true,    /* Unlock parent */
+							unlockbuf    /* Unlock stack->buffer if caller
 										 * wants that */
-		);
+		, false);
 
 	/*
 	 * The downlink might have moved when we updated it. Even if the page
@@ -1732,4 +1749,207 @@ gistprunepage(Relation rel, Page page, Buffer buffer, Relation heapRel)
 	 * separate write to clear it, however.  We will clear it when we split
 	 * the page.
 	 */
+}
+
+static void
+gistbottomupdeladd(Relation rel, Page page, OffsetNumber offnum,
+				   TM_IndexDeleteOp *delstate, GISTSTATE *state)
+{
+	ItemId		prevId;
+	ItemId		thisId;
+	IndexTuple	prev;
+	IndexTuple	this;
+	TM_IndexDelete *ideltid;
+	TM_IndexStatus *istatus;
+	int			nkeyatts = IndexRelationGetNumberOfKeyAttributes(rel);
+	bool promising = true;
+
+	Assert(offnum > FirstOffsetNumber);
+
+	prevId = PageGetItemId(page, OffsetNumberPrev(offnum));
+	thisId = PageGetItemId(page, offnum);
+
+	prev = (IndexTuple) PageGetItem(page, prevId);
+	this = (IndexTuple) PageGetItem(page, thisId);
+
+	for (AttrNumber att = 1; att <= nkeyatts; att++)
+	{
+		bool	isnull1,
+				isnull2;
+		Datum	prevAtt,
+				thisAtt;
+		prevAtt = index_getattr(prev, att, state->leafTupdesc, &isnull1);
+		thisAtt = index_getattr(this, att, state->leafTupdesc, &isnull2);
+
+		if (isnull1 != isnull2)
+		{
+			promising = false;
+			break;
+		}
+
+		/* both NULL == duplicates */
+		if (isnull1 == true)
+			continue;
+
+		/* cheap compare for by-value attributes */
+		if (prevAtt == thisAtt)
+			continue;
+
+		/* not equal, so not "promising" */
+		if (!gistKeyIsEQ(state, att - 1, prevAtt, thisAtt))
+		{
+			promising = false;
+			break;
+		}
+	}
+
+	ideltid = &delstate->deltids[delstate->ndeltids];
+	istatus = &delstate->status[delstate->ndeltids];
+
+	ideltid->id = delstate->ndeltids;
+	ideltid->tid = this->t_tid;
+
+	istatus->idxoffnum = offnum;
+	istatus->knowndeletable = false;
+	istatus->promising = promising;
+	istatus->freespace = IndexTupleSize(this);
+
+	if (promising)
+	{
+		/* also mark the previous entry (the other duplicate) as promising */
+		(istatus - 1)->promising = promising;
+	}
+
+	delstate->ndeltids++;
+}
+
+static int
+gistdelitemscmp(const void *a, const void *b)
+{
+	TM_IndexDelete *indexdelete1 = (TM_IndexDelete *) a;
+	TM_IndexDelete *indexdelete2 = (TM_IndexDelete *) b;
+
+	Assert(indexdelete1->id != indexdelete2->id);
+
+	return pg_cmp_s16(indexdelete1->id, indexdelete2->id);
+}
+
+/*
+ * gistbottomupdelpage() -- try to remove LP_DEAD items from the given page.
+ * Function assumes that buffer is exclusively locked.
+ */
+static void
+gistbottomupdelpage(Relation rel, Page page, Buffer buffer, Relation heapRel,
+					GISTSTATE *giststate, Size needsize)
+{
+	TM_IndexDeleteOp delstate;
+	OffsetNumber deletable[MaxIndexTuplesPerPage];
+	int			ndeletable = 0;
+	OffsetNumber offnum,
+				maxoff;
+	TransactionId snapshotConflictHorizon = InvalidTransactionId;
+
+	maxoff = PageGetMaxOffsetNumber(page);
+	if (maxoff == 0)
+		return;
+
+	Assert(GistPageIsLeaf(page));
+
+	delstate.irel = rel;
+	delstate.ndeltids = 0;
+	delstate.bottomup = true;
+	delstate.bottomupfreespace = needsize;
+	delstate.iblknum = BufferGetBlockNumber(buffer);
+	delstate.deltids = palloc(sizeof(TM_IndexDelete) * MaxIndexTuplesPerPage);
+	delstate.status = palloc(sizeof(TM_IndexStatus ) * MaxIndexTuplesPerPage);
+
+	/* initialize state with the first tuple */
+	if (maxoff > 0)
+	{
+		ItemId		first;
+		IndexTuple	firstTup;
+		first = PageGetItemId(page, FirstOffsetNumber);
+		firstTup = (IndexTuple) PageGetItem(page, first);
+
+		delstate.deltids->id = 0;
+		delstate.deltids->tid = firstTup->t_tid;
+		delstate.status->promising = false;
+		delstate.status->knowndeletable = false;
+		delstate.status->idxoffnum = FirstOffsetNumber;
+		delstate.status->freespace = IndexTupleSize(firstTup);
+	}
+
+	/*
+	 * Scan over the remaining items
+	 */
+
+	for (offnum = OffsetNumberNext(FirstOffsetNumber);
+		 offnum <= maxoff;
+		 offnum = OffsetNumberNext(offnum))
+	{
+		gistbottomupdeladd(rel, page, offnum, &delstate, giststate);
+	}
+
+	/* See if there are any */
+	snapshotConflictHorizon = table_index_delete_tuples(heapRel, &delstate);
+
+	if (delstate.ndeltids == 0)
+	{
+		pfree(delstate.status);
+		pfree(delstate.deltids);
+		return;
+	}
+
+	if (!XLogStandbyInfoActive())
+		snapshotConflictHorizon = InvalidTransactionId;
+
+	qsort(delstate.deltids, delstate.ndeltids, sizeof(TM_IndexDelete),
+		  gistdelitemscmp);
+
+	for (int i = 0; i < delstate.ndeltids; i++)
+	{
+		TM_IndexStatus *dstatus = delstate.status + delstate.deltids[i].id;
+		OffsetNumber idxoffnum = dstatus->idxoffnum;
+		ItemId		itemid = PageGetItemId(page, idxoffnum);
+		IndexTuple	itup = (IndexTuple) PageGetItem(page, itemid);
+
+		Assert(ItemPointerEquals(&itup->t_tid, &delstate.deltids[i].tid));
+
+		if (dstatus->knowndeletable)
+			deletable[ndeletable++] = idxoffnum;
+	}
+
+	Assert(delstate.ndeltids);
+
+	START_CRIT_SECTION();
+
+	PageIndexMultiDelete(page, deletable, ndeletable);
+
+	/*
+	 * Mark the page as not containing any LP_DEAD items.  This is not
+	 * certainly true (there might be some that have recently been marked,
+	 * but weren't included in our target-item list), but it will almost
+	 * always be true and it doesn't seem worth an additional page scan to
+	 * check it. Remember that F_HAS_GARBAGE is only a hint anyway.
+	 */
+	GistClearPageHasGarbage(page);
+
+	MarkBufferDirty(buffer);
+
+	/* XLOG stuff */
+	if (RelationNeedsWAL(rel))
+	{
+		XLogRecPtr	recptr;
+
+		recptr = gistXLogDelete(buffer,
+								deletable, ndeletable,
+								snapshotConflictHorizon,
+								heapRel);
+
+		PageSetLSN(page, recptr);
+	}
+	else
+		PageSetLSN(page, gistGetFakeLSN(rel));
+
+	END_CRIT_SECTION();
 }

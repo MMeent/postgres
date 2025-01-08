@@ -863,7 +863,7 @@ gistBuildCallback(Relation index,
 		 * locked, we call gistdoinsert directly.
 		 */
 		gistdoinsert(index, itup, buildstate->freespace,
-					 buildstate->giststate, buildstate->heaprel, true);
+					 buildstate->giststate, buildstate->heaprel, true, false);
 	}
 
 	MemoryContextSwitchTo(oldCtx);
@@ -1070,7 +1070,8 @@ gistbufferinginserttuples(GISTBuildState *buildstate, Buffer buffer, int level,
 							   InvalidBuffer,
 							   &splitinfo,
 							   false,
-							   buildstate->heaprel, true);
+							   buildstate->heaprel, true,
+							   false);
 
 	/*
 	 * If this is a root split, update the root path item kept in memory. This
