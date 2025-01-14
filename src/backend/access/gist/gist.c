@@ -277,20 +277,23 @@ gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
 	 * If leaf page is full, try at first to delete dead tuples. And then
 	 * check again.
 	 */
-	if (is_split && GistPageIsLeaf(page) && GistPageHasGarbage(page))
+	if (is_split && GistPageIsLeaf(page))
 	{
-		gistprunepage(rel, page, buffer, heapRel);
-		is_split = gistnospace(page, itup, ntup, oldoffnum, freespace);
-	}
-	if (is_split && GistPageIsLeaf(page) && indexUnchanged)
-	{
-		Size	needsize = 0;
+		if (indexUnchanged)
+		{
+			Size	needsize = 0;
 
-		for (int i = 0; i < ntup; i++)
-			needsize += IndexTupleSize(itup[i]);
+			for (int i = 0; i < ntup; i++)
+				needsize += IndexTupleSize(itup[i]);
 
-		gistbottomupdelpage(rel, page, buffer, heapRel, giststate, needsize);
-		is_split = gistnospace(page, itup, ntup, oldoffnum, freespace);
+			gistbottomupdelpage(rel, page, buffer, heapRel, giststate, needsize);
+			is_split = gistnospace(page, itup, ntup, oldoffnum, freespace);
+		}
+		else if (GistPageHasGarbage(page))
+		{
+			gistprunepage(rel, page, buffer, heapRel);
+			is_split = gistnospace(page, itup, ntup, oldoffnum, freespace);
+		}
 	}
 
 	if (is_split)
@@ -1672,6 +1675,15 @@ freeGISTstate(GISTSTATE *giststate)
 	MemoryContextDelete(giststate->scanCxt);
 }
 
+//static int
+//compare_blocknum(const void *left, const void *right)
+//{
+//	BlockNumber leftBn = *(const BlockNumber *)left;
+//	BlockNumber rightBn = *(const BlockNumber *)right;
+//	
+//	return ssup_datum_int32_cmp()
+//}
+
 /*
  * gistprunepage() -- try to remove LP_DEAD items from the given page.
  * Function assumes that buffer is exclusively locked.
@@ -1679,7 +1691,7 @@ freeGISTstate(GISTSTATE *giststate)
 static void
 gistprunepage(Relation rel, Page page, Buffer buffer, Relation heapRel)
 {
-	OffsetNumber deletable[MaxIndexTuplesPerPage];
+	BlockNumber	delpages[MaxIndexTuplesPerPage];
 	int			ndeletable = 0;
 	OffsetNumber offnum,
 				maxoff;
@@ -1698,8 +1710,17 @@ gistprunepage(Relation rel, Page page, Buffer buffer, Relation heapRel)
 		ItemId		itemId = PageGetItemId(page, offnum);
 
 		if (ItemIdIsDead(itemId))
-			deletable[ndeletable++] = offnum;
+		{
+			delpages[ndeletable] = ItemPointerGetBlockNumber(
+				&((IndexTuple) PageGetItem(page, itemId))->t_tid
+			);
+		}
 	}
+
+	if (ndeletable == 0)
+		return;
+
+	qsort(delpages, ndeletable, sizeof(BlockNumber), compare_blocknum)
 
 	if (ndeletable > 0)
 	{
@@ -1751,6 +1772,9 @@ gistprunepage(Relation rel, Page page, Buffer buffer, Relation heapRel)
 	 */
 }
 
+/*
+ * Add the indicated tuple to the TM_IndexDeleteOp.
+ */
 static void
 gistbottomupdeladd(Relation rel, Page page, OffsetNumber offnum,
 				   TM_IndexDeleteOp *delstate, GISTSTATE *state)
@@ -1810,7 +1834,7 @@ gistbottomupdeladd(Relation rel, Page page, OffsetNumber offnum,
 	ideltid->tid = this->t_tid;
 
 	istatus->idxoffnum = offnum;
-	istatus->knowndeletable = false;
+	istatus->knowndeletable = ItemIdIsDead(thisId);
 	istatus->promising = promising;
 	istatus->freespace = IndexTupleSize(this);
 
@@ -1835,7 +1859,8 @@ gistdelitemscmp(const void *a, const void *b)
 }
 
 /*
- * gistbottomupdelpage() -- try to remove LP_DEAD items from the given page.
+ * gistbottomupdelpage() -- Remove LP_DEAD items (and other dead tuples) from
+ * the given page.
  * Function assumes that buffer is exclusively locked.
  */
 static void
@@ -1844,6 +1869,7 @@ gistbottomupdelpage(Relation rel, Page page, Buffer buffer, Relation heapRel,
 {
 	TM_IndexDeleteOp delstate;
 	OffsetNumber deletable[MaxIndexTuplesPerPage];
+	BlockNumber delblocks[MaxIndexTuplesPerPage];
 	int			ndeletable = 0;
 	OffsetNumber offnum,
 				maxoff;
@@ -1874,7 +1900,7 @@ gistbottomupdelpage(Relation rel, Page page, Buffer buffer, Relation heapRel,
 		delstate.deltids->id = 0;
 		delstate.deltids->tid = firstTup->t_tid;
 		delstate.status->promising = false;
-		delstate.status->knowndeletable = false;
+		delstate.status->knowndeletable = ItemIdIsDead(first);
 		delstate.status->idxoffnum = FirstOffsetNumber;
 		delstate.status->freespace = IndexTupleSize(firstTup);
 	}
