@@ -25,6 +25,8 @@
 #include "storage/buf_internals.h"
 #include "utils/dynahash.h"
 
+#define NUM_FREELISTS NUM_BUFFER_PARTITIONS
+
 /*
  * Hash element: Singly linked list with hash of value contained, and
  * the reference to the buffer header that contains the to-be-hashed value.
@@ -69,9 +71,9 @@ typedef struct HashBucket
 typedef struct FreeList
 {
 	slock_t	mutex;
-	int32	firstFree;
-	int32	lastFree;
-	int32	myTag;
+	int32	prev;	/* first free */
+	int32	next;	/* last free */
+	int32	freeListTag;
 } FreeList;
 
 
@@ -92,7 +94,7 @@ typedef struct BufTable {
 		BufTableHeader hdr;
 		char	pad[CACHELINEALIGN(sizeof(BufTableHeader))];
 	};
-	FreeListPadded	freeList[NUM_BUFFER_PARTITIONS];
+	FreeListPadded	freeList[NUM_FREELISTS];
 	HashBucket	buckets[FLEXIBLE_ARRAY_MEMBER];
 } BufTable;
 
@@ -100,12 +102,12 @@ static BufTable *bufLookupTable;
 
 #define NumBucketsFromSize(size) (1 << my_log2((size * 5) / 4))
 
-#define FreeListIdxFromHash(hash) (hash % NUM_BUFFER_PARTITIONS)
+#define FreeListIdxFromHash(hash) (hash % NUM_FREELISTS)
 
 static inline FreeList *
 BufTableGetFreelist(BufTable *table, uint32 idx)
 {
-	Assert(idx < NUM_BUFFER_PARTITIONS);
+	Assert(idx < NUM_FREELISTS);
 	return &table->freeList[idx].list;
 }
 
@@ -151,7 +153,7 @@ BufTableShmemSize(int size)
 }
 
 
-static inline void
+static void
 add_to_freelist(BufTable *table, HashFreeListEntry *freeEntry, uint32 index)
 {
 	uint32		freeListIdx;
@@ -167,12 +169,14 @@ add_to_freelist(BufTable *table, HashFreeListEntry *freeEntry, uint32 index)
 	freeEntry->prev = freeListTag;
 
 	S_LOCK(&freeList->mutex);
-	next = freeList->firstFree;
-	if (next < 0)
+	next = freeList->prev;
+	if (next < 0)	/* list is empty */
 	{
 		pg_atomic_write_u32(&freeEntry->tag, (uint32) freeListTag);
-		freeList->firstFree = (int32) index;
-		freeList->lastFree = (int32) index;
+		freeList->prev = (int32) index;
+		freeList->next = (int32) index;
+		freeEntry->next = freeListTag;
+		freeEntry->prev = freeListTag;
 	}
 	else
 	{
@@ -183,8 +187,8 @@ add_to_freelist(BufTable *table, HashFreeListEntry *freeEntry, uint32 index)
 
 		pg_atomic_write_u32(&freeEntry->tag, (uint32) freeListTag);
 
-		freeEntry->prev = freeList->firstFree;
-		freeList->firstFree = prevEntry->next = (int32) index;
+		freeEntry->prev = freeList->prev;
+		freeList->prev = prevEntry->next = (int32) index;
 	}
 	S_UNLOCK(&freeList->mutex);
 }
@@ -220,15 +224,15 @@ InitBufTable(int size)
 	bufLookupTable->hdr.numBuckets = nbuckets;
 	bufLookupTable->hdr.mask = nbuckets - 1;
 
-	for (int i = 0; i < NUM_BUFFER_PARTITIONS; i++)
+	for (int i = 0; i < NUM_FREELISTS; i++)
 	{
 		FreeList *list = &bufLookupTable->freeList[i].list;
 
 		S_INIT_LOCK(&list->mutex);
-		list->myTag = (-1 - i);
+		list->freeListTag = (-1 - i);
 
-		list->firstFree = list->myTag;
-		list->lastFree = list->myTag;
+		list->prev = list->freeListTag;
+		list->next = list->freeListTag;
 	}
 
 	/* build per-partition freelists */
@@ -281,39 +285,81 @@ initial_lookup(BufTable *table, uint32 hashvalue, HashBucket **hashBucket, int32
  * does not hold this code will loop infinitely.
  */
 static HashElement *
-buftable_get_free_element(BufTable *table, uint32 hashValue, int32 *pInt)
+buftable_get_free_element(BufTable *table, HashBucket *bucket, uint32 hashValue,
+						  int32 *pInt)
 {
 	FreeList   *freeList;
 	HashFreeListEntry *entry;
+	uint32		freeListIdx = FreeListIdxFromHash(hashValue);
+	freeList = BufTableGetFreelist(table, freeListIdx);
 
-	do {
-		for (;; hashValue++)
+	/*
+	 * First, try to fit the newly added element into the bucket's
+	 * element slot, if there's space.
+	 */
+	if (freeList->freeListTag == (int32) pg_atomic_read_u32(&bucket->freeEntry.tag))
+	{
+		S_LOCK(&freeList->mutex);
+		if (likely(freeList->freeListTag == (int32) pg_atomic_read_u32(&bucket->freeEntry.tag)))
 		{
-			freeList = BufTableGetFreelist(table, FreeListIdxFromHash(hashValue));
+			*pInt = calc_bucket(table, hashValue);
+			entry = &bucket->freeEntry;
 
-			S_LOCK(&freeList->mutex);
-			if (freeList->firstFree != freeList->myTag)
-				break;
-			S_UNLOCK(&freeList->mutex);
+			goto freeElementFound;
 		}
+		S_UNLOCK(&freeList->mutex);
+	}
 
-		entry = BufTableGetFreeEntry(table, freeList->firstFree);
-		*pInt = freeList->firstFree;
-	} while (false);
+	/*
+	 * If all else failed, fall back to pulling the elements from the
+	 * freelists directly.
+	 */
+	for (;;)
+	{
+		S_LOCK(&freeList->mutex);
+		if (freeList->prev != freeList->freeListTag)
+			break;
+		S_UNLOCK(&freeList->mutex);
+		hashValue++;
+		freeListIdx = FreeListIdxFromHash(hashValue);
+		freeList = BufTableGetFreelist(table, freeListIdx);
+	}
 
-	Assert(entry->next == freeList->myTag);
+	entry = BufTableGetFreeEntry(table, freeList->prev);
+	*pInt = freeList->prev;
 
-	/* unlink the entry from the linked list*/
-	if (entry->prev != freeList->myTag)
+	/*
+	 * preconditions:
+	 *
+	 * - entry is set
+	 * - *pInt is set to the offset of the entry
+	 * - freeList contains the freeList associated with entry
+	 * - freeList->mutex is locked
+	 */
+freeElementFound:
+	/*
+	 * Unlink the entry from the (doubly!) linked list.
+	 */
+	if (entry->prev != freeList->freeListTag)
 	{
 		HashFreeListEntry *prevEntry = BufTableGetFreeEntry(table, entry->prev);
+		Assert(pg_atomic_read_u32(&prevEntry->tag) == freeList->freeListTag);
 		prevEntry->next = entry->next;
-		freeList->firstFree = entry->prev;
 	}
 	else
 	{
-		Assert(freeList->firstFree == freeList->lastFree);
-		Assert(entry->next == entry->prev);
+		freeList->next = entry->next;
+	}
+
+	if (entry->next != freeList->freeListTag)
+	{
+		HashFreeListEntry *nextEntry = BufTableGetFreeEntry(table, entry->next);
+		Assert(pg_atomic_read_u32(&nextEntry->tag) == freeList->freeListTag);
+		nextEntry->prev = entry->prev;
+	}
+	else
+	{
+		freeList->prev = entry->prev;
 	}
 
 	S_UNLOCK(&freeList->mutex);
@@ -443,7 +489,8 @@ BufTableInsert(BufferTag *tagPtr, uint32 hashcode, int buf_id)
 		return (int) pg_atomic_read_u32(&matchElement->buffer);
 
 	/* else, create a new one */
-	matchElement = buftable_get_free_element(table, hashcode, &matchElemIdx);
+	matchElement = buftable_get_free_element(table, currBucket, hashcode,
+											 &matchElemIdx);
 
 	/* link into hashbucket chain */
 	*prevNextPtr = matchElemIdx;
@@ -504,6 +551,26 @@ BufTableDelete(BufferTag *tagPtr, uint32 hashcode, int buffer)
 		 * by the caller by now.
 		 */
 		Assert(0 <= (int32) pg_atomic_read_u32(&matchElement->buffer));
+
+		/*
+		 * If we're dropping the optimally located hash entry, move the
+		 * next element's slot data, and drop that next element instead.
+		 */
+		if (&currBucket->element == matchElement && matchElement->next >= 0)
+		{
+			int32		nextIdx = matchElement->next;
+			HashElement *next = BufTableGetElement(table, nextIdx);
+
+			/* copy payloads into the "old deleted" slot */
+			pg_atomic_write_u32(&matchElement->buffer,
+								pg_atomic_read_u32(&next->buffer));
+			matchElement->hashValue = next->hashValue;
+
+			/* Mark the next element for deletion */
+			prevNextPtr = &matchElement->next;
+			matchElement = next;
+			matchElemIdx = nextIdx;
+		}
 
 		/* unlink the element from the singly-linked list */
 		*prevNextPtr = matchElement->next;
