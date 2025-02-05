@@ -67,6 +67,12 @@ typedef struct HashBucket
 	};
 } HashBucket;
 
+/*
+ * We assume 64-byte cache lines here, which is less than PG_CACHELINE_SIZE,
+ * but this one is more common, and uses less memory.
+ */
+#define CACHELINE_SIZE 64
+#define BUCKETS_PER_CACHELINE (CACHELINE_SIZE / sizeof(HashBucket))
 
 typedef struct FreeList
 {
@@ -80,7 +86,7 @@ typedef struct FreeList
 typedef union FreeListPadded
 {
 	FreeList	list;
-	char		padding[PG_CACHE_LINE_SIZE];
+	char		padding[CACHELINE_SIZE];
 } FreeListPadded;
 
 typedef struct BufTableHeader
@@ -92,7 +98,7 @@ typedef struct BufTableHeader
 typedef struct BufTable {
 	union {
 		BufTableHeader hdr;
-		char	pad[CACHELINEALIGN(sizeof(BufTableHeader))];
+		char	pad[TYPEALIGN(CACHELINE_SIZE, sizeof(BufTableHeader))];
 	};
 	FreeListPadded	freeList[NUM_FREELISTS];
 	HashBucket	buckets[FLEXIBLE_ARRAY_MEMBER];
@@ -101,8 +107,8 @@ typedef struct BufTable {
 static BufTable *bufLookupTable;
 
 #define NumBucketsFromSize(size) (1 << my_log2((size * 5) / 4))
-
-#define FreeListIdxFromHash(hash) (hash % NUM_FREELISTS)
+#define FreeListIdxFromHash(hash) ((hash) % NUM_FREELISTS)
+#define FreeListTag(list_idx) ((-1 - (list_idx)))
 
 static inline FreeList *
 BufTableGetFreelist(BufTable *table, uint32 idx)
@@ -145,7 +151,7 @@ BufTableShmemSize(int size)
 	uint64		nbuckets = NumBucketsFromSize(size);
 	Size		alloc = 0;
 
-	alloc = add_size(alloc, PG_CACHE_LINE_SIZE);
+	alloc = add_size(alloc, CACHELINE_SIZE);
 	alloc = add_size(alloc, offsetof(BufTable, buckets));
 	alloc = add_size(alloc, mul_size(nbuckets, sizeof(HashBucket)));
 
@@ -159,33 +165,31 @@ add_to_freelist(BufTable *table, HashFreeListEntry *freeEntry, uint32 index)
 	uint32		freeListIdx;
 	FreeList   *freeList;
 	int32		next;
-	int32		freeListTag;
 	Assert(freeEntry == BufTableGetFreeEntry(table, index));
 
 	freeListIdx = FreeListIdxFromHash(index);
 	freeList = BufTableGetFreelist(bufLookupTable, freeListIdx);
-	freeListTag = (-1 - (int32) freeListIdx);
-	freeEntry->next = freeListTag;
-	freeEntry->prev = freeListTag;
+	freeEntry->next = FreeListTag(freeListIdx);
+	freeEntry->prev = FreeListTag(freeListIdx);
 
 	S_LOCK(&freeList->mutex);
 	next = freeList->prev;
 	if (next < 0)	/* list is empty */
 	{
-		pg_atomic_write_u32(&freeEntry->tag, (uint32) freeListTag);
+		pg_atomic_write_u32(&freeEntry->tag, (uint32) FreeListTag(freeListIdx));
 		freeList->prev = (int32) index;
 		freeList->next = (int32) index;
-		freeEntry->next = freeListTag;
-		freeEntry->prev = freeListTag;
+		freeEntry->next = FreeListTag(freeListIdx);
+		freeEntry->prev = FreeListTag(freeListIdx);
 	}
 	else
 	{
 		HashFreeListEntry *prevEntry;
 
 		prevEntry = BufTableGetFreeEntry(table, next);
-		Assert(pg_atomic_read_u32(&prevEntry->tag) == (uint32) freeListTag);
+		Assert(pg_atomic_read_u32(&prevEntry->tag) == (uint32) FreeListTag(freeListIdx));
 
-		pg_atomic_write_u32(&freeEntry->tag, (uint32) freeListTag);
+		pg_atomic_write_u32(&freeEntry->tag, (uint32) FreeListTag(freeListIdx));
 
 		freeEntry->prev = freeList->prev;
 		freeList->prev = prevEntry->next = (int32) index;
@@ -218,7 +222,7 @@ InitBufTable(int size)
 		return;
 
 	Assert(PointerIsAligned(baseptr, void *));
-	bufLookupTable = (void *) CACHELINEALIGN((char *) baseptr);
+	bufLookupTable = (void *) TYPEALIGN(CACHELINE_SIZE, baseptr);
 
 	/* nbuckets is always a power of 2, so mask is always nbuckets-1 */
 	bufLookupTable->hdr.numBuckets = nbuckets;
@@ -229,7 +233,7 @@ InitBufTable(int size)
 		FreeList *list = &bufLookupTable->freeList[i].list;
 
 		S_INIT_LOCK(&list->mutex);
-		list->freeListTag = (-1 - i);
+		list->freeListTag = FreeListTag(i);
 
 		list->prev = list->freeListTag;
 		list->next = list->freeListTag;
@@ -290,25 +294,46 @@ buftable_get_free_element(BufTable *table, HashBucket *bucket, uint32 hashValue,
 {
 	FreeList   *freeList;
 	HashFreeListEntry *entry;
-	uint32		freeListIdx = FreeListIdxFromHash(hashValue);
-	freeList = BufTableGetFreelist(table, freeListIdx);
+	uint32		freeListIdx;
+	uint32		clineOffset;
 
 	/*
 	 * First, try to fit the newly added element into the bucket's
 	 * element slot, if there's space.
+	 * If that doesn't work out, also try any of the other buckets
+	 * of this cache line, just in case they might have space.
 	 */
-	if (freeList->freeListTag == (int32) pg_atomic_read_u32(&bucket->freeEntry.tag))
-	{
-		S_LOCK(&freeList->mutex);
-		if (likely(freeList->freeListTag == (int32) pg_atomic_read_u32(&bucket->freeEntry.tag)))
-		{
-			*pInt = calc_bucket(table, hashValue);
-			entry = &bucket->freeEntry;
+	/* truncate away the least significant bits: those will be filled later */
+	clineOffset = hashValue % BUCKETS_PER_CACHELINE;
 
-			goto freeElementFound;
+	for (int32 i = 0; i < BUCKETS_PER_CACHELINE; i++)
+	{
+		HashBucket *clineBucket;
+		int32		relative = ((int32) ((clineOffset + i) % BUCKETS_PER_CACHELINE)) - clineOffset;
+		freeListIdx = FreeListIdxFromHash(hashValue + i);
+		clineBucket = bucket + relative;
+
+		if (pg_atomic_read_u32(&clineBucket->freeEntry.tag) == FreeListTag(freeListIdx))
+		{
+			freeList = BufTableGetFreelist(table, freeListIdx);
+
+			S_LOCK(&freeList->mutex);
+
+			if (likely(pg_atomic_read_u32(&clineBucket->freeEntry.tag) == FreeListTag(freeListIdx)))
+			{
+				entry = &clineBucket->freeEntry;
+				*pInt = (int32) (calc_bucket(table, hashValue) + relative);
+
+				goto freeElementFound;
+			}
+
+			S_UNLOCK(&freeList->mutex);
 		}
-		S_UNLOCK(&freeList->mutex);
 	}
+
+	/* restore to the correct freelist */
+	freeListIdx = FreeListIdxFromHash(hashValue);
+	freeList = BufTableGetFreelist(table, freeListIdx);
 
 	/*
 	 * If all else failed, fall back to pulling the elements from the
