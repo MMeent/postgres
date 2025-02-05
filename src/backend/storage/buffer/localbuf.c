@@ -119,6 +119,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	BufferTag	newTag;			/* identity of requested block */
 	LocalBufferLookupEnt *hresult;
 	BufferDesc *bufHdr;
+	BufferTag  *bufTag;
 	Buffer		victim_buffer;
 	int			bufid;
 	bool		found;
@@ -139,7 +140,8 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	{
 		bufid = hresult->id;
 		bufHdr = GetLocalBufferDescriptor(bufid);
-		Assert(BufferTagsEqual(&bufHdr->tag, &newTag));
+		bufTag = GetLocalBufferTag(bufid);
+		Assert(BufferTagsEqual(bufTag, &newTag));
 
 		*foundPtr = PinLocalBuffer(bufHdr, true);
 	}
@@ -150,6 +152,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		victim_buffer = GetLocalVictimBuffer();
 		bufid = -victim_buffer - 1;
 		bufHdr = GetLocalBufferDescriptor(bufid);
+		bufTag = GetLocalBufferTag(bufid);
 
 		hresult = (LocalBufferLookupEnt *)
 			hash_search(LocalBufHash, &newTag, HASH_ENTER, &found);
@@ -160,7 +163,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		/*
 		 * it's all ours now.
 		 */
-		bufHdr->tag = newTag;
+		*bufTag = newTag;
 
 		buf_state = pg_atomic_read_u32(&bufHdr->state);
 		buf_state &= ~(BUF_FLAG_MASK | BUF_USAGECOUNT_MASK);
@@ -180,6 +183,7 @@ GetLocalVictimBuffer(void)
 	int			trycounter;
 	uint32		buf_state;
 	BufferDesc *bufHdr;
+	BufferTag  *bufTag;
 
 	ResourceOwnerEnlarge(CurrentResourceOwner);
 
@@ -196,6 +200,7 @@ GetLocalVictimBuffer(void)
 			nextFreeLocalBufId = 0;
 
 		bufHdr = GetLocalBufferDescriptor(victim_bufid);
+		bufTag = GetLocalBufferTag(victim_bufid);
 
 		if (LocalRefCount[victim_bufid] == 0)
 		{
@@ -240,16 +245,16 @@ GetLocalVictimBuffer(void)
 		Page		localpage = (char *) LocalBufHdrGetBlock(bufHdr);
 
 		/* Find smgr relation for buffer */
-		oreln = smgropen(BufTagGetRelFileLocator(&bufHdr->tag), MyProcNumber);
+		oreln = smgropen(BufTagGetRelFileLocator(bufTag), MyProcNumber);
 
-		PageSetChecksumInplace(localpage, bufHdr->tag.blockNum);
+		PageSetChecksumInplace(localpage, bufTag->blockNum);
 
 		io_start = pgstat_prepare_io_time(track_io_timing);
 
 		/* And write... */
 		smgrwrite(oreln,
-				  BufTagGetForkNum(&bufHdr->tag),
-				  bufHdr->tag.blockNum,
+				  BufTagGetForkNum(bufTag),
+				  bufTag->blockNum,
 				  localpage,
 				  false);
 
@@ -272,11 +277,11 @@ GetLocalVictimBuffer(void)
 		LocalBufferLookupEnt *hresult;
 
 		hresult = (LocalBufferLookupEnt *)
-			hash_search(LocalBufHash, &bufHdr->tag, HASH_REMOVE, NULL);
+			hash_search(LocalBufHash, bufTag, HASH_REMOVE, NULL);
 		if (!hresult)			/* shouldn't happen */
 			elog(ERROR, "local buffer hash table corrupted");
 		/* mark buffer invalid just in case hash insert fails */
-		ClearBufferTag(&bufHdr->tag);
+		ClearBufferTag(bufTag);
 		buf_state &= ~(BUF_FLAG_MASK | BUF_USAGECOUNT_MASK);
 		pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
 
@@ -367,12 +372,14 @@ ExtendBufferedRelLocal(BufferManagerRelation bmr,
 	{
 		int			victim_buf_id;
 		BufferDesc *victim_buf_hdr;
+		BufferTag  *victim_buf_tag;
 		BufferTag	tag;
 		LocalBufferLookupEnt *hresult;
 		bool		found;
 
 		victim_buf_id = -buffers[i] - 1;
 		victim_buf_hdr = GetLocalBufferDescriptor(victim_buf_id);
+		victim_buf_tag = GetLocalBufferTag(victim_buf_id);
 
 		/* in case we need to pin an existing buffer below */
 		ResourceOwnerEnlarge(CurrentResourceOwner);
@@ -404,7 +411,7 @@ ExtendBufferedRelLocal(BufferManagerRelation bmr,
 
 			Assert(!(buf_state & (BM_VALID | BM_TAG_VALID | BM_DIRTY | BM_JUST_DIRTIED)));
 
-			victim_buf_hdr->tag = tag;
+			*victim_buf_tag = tag;
 
 			buf_state |= BM_TAG_VALID | BUF_USAGECOUNT_ONE;
 
@@ -495,31 +502,32 @@ DropRelationLocalBuffers(RelFileLocator rlocator, ForkNumber forkNum,
 	for (i = 0; i < NLocBuffer; i++)
 	{
 		BufferDesc *bufHdr = GetLocalBufferDescriptor(i);
+		BufferTag  *bufTag = GetLocalBufferTag(i);
 		LocalBufferLookupEnt *hresult;
 		uint32		buf_state;
 
 		buf_state = pg_atomic_read_u32(&bufHdr->state);
 
 		if ((buf_state & BM_TAG_VALID) &&
-			BufTagMatchesRelFileLocator(&bufHdr->tag, &rlocator) &&
-			BufTagGetForkNum(&bufHdr->tag) == forkNum &&
-			bufHdr->tag.blockNum >= firstDelBlock)
+			BufTagMatchesRelFileLocator(bufTag, &rlocator) &&
+			BufTagGetForkNum(bufTag) == forkNum &&
+			bufTag->blockNum >= firstDelBlock)
 		{
 			if (LocalRefCount[i] != 0)
 				elog(ERROR, "block %u of %s is still referenced (local %u)",
-					 bufHdr->tag.blockNum,
-					 relpathbackend(BufTagGetRelFileLocator(&bufHdr->tag),
+					 bufTag->blockNum,
+					 relpathbackend(BufTagGetRelFileLocator(bufTag),
 									MyProcNumber,
-									BufTagGetForkNum(&bufHdr->tag)),
+									BufTagGetForkNum(bufTag)),
 					 LocalRefCount[i]);
 
 			/* Remove entry from hashtable */
 			hresult = (LocalBufferLookupEnt *)
-				hash_search(LocalBufHash, &bufHdr->tag, HASH_REMOVE, NULL);
+				hash_search(LocalBufHash, bufTag, HASH_REMOVE, NULL);
 			if (!hresult)		/* shouldn't happen */
 				elog(ERROR, "local buffer hash table corrupted");
 			/* Mark buffer invalid */
-			ClearBufferTag(&bufHdr->tag);
+			ClearBufferTag(bufTag);
 			buf_state &= ~BUF_FLAG_MASK;
 			buf_state &= ~BUF_USAGECOUNT_MASK;
 			pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
@@ -542,28 +550,29 @@ DropRelationAllLocalBuffers(RelFileLocator rlocator)
 	for (i = 0; i < NLocBuffer; i++)
 	{
 		BufferDesc *bufHdr = GetLocalBufferDescriptor(i);
+		BufferTag  *bufTag = GetLocalBufferTag(i);
 		LocalBufferLookupEnt *hresult;
 		uint32		buf_state;
 
 		buf_state = pg_atomic_read_u32(&bufHdr->state);
 
 		if ((buf_state & BM_TAG_VALID) &&
-			BufTagMatchesRelFileLocator(&bufHdr->tag, &rlocator))
+			BufTagMatchesRelFileLocator(bufTag, &rlocator))
 		{
 			if (LocalRefCount[i] != 0)
 				elog(ERROR, "block %u of %s is still referenced (local %u)",
-					 bufHdr->tag.blockNum,
-					 relpathbackend(BufTagGetRelFileLocator(&bufHdr->tag),
+					 bufTag->blockNum,
+					 relpathbackend(BufTagGetRelFileLocator(bufTag),
 									MyProcNumber,
-									BufTagGetForkNum(&bufHdr->tag)),
+									BufTagGetForkNum(bufTag)),
 					 LocalRefCount[i]);
 			/* Remove entry from hashtable */
 			hresult = (LocalBufferLookupEnt *)
-				hash_search(LocalBufHash, &bufHdr->tag, HASH_REMOVE, NULL);
+				hash_search(LocalBufHash, bufTag, HASH_REMOVE, NULL);
 			if (!hresult)		/* shouldn't happen */
 				elog(ERROR, "local buffer hash table corrupted");
 			/* Mark buffer invalid */
-			ClearBufferTag(&bufHdr->tag);
+			ClearBufferTag(bufTag);
 			buf_state &= ~BUF_FLAG_MASK;
 			buf_state &= ~BUF_USAGECOUNT_MASK;
 			pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);

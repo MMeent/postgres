@@ -408,7 +408,7 @@ BufTableLookup(BufferTag *tagPtr, uint32 hashcode)
 	{
 		if (matchElement->hashValue == hashcode && BufferTagsEqual(
 		tagPtr,
-		&GetBufferDescriptor(pg_atomic_read_u32(&matchElement->buffer))->tag
+		GetBufferTag(pg_atomic_read_u32(&matchElement->buffer))
 		))
 			break;
 
@@ -467,7 +467,7 @@ BufTableInsert(BufferTag *tagPtr, uint32 hashcode, int buf_id)
 
 		if (matchElement->hashValue == hashcode && BufferTagsEqual(
 			tagPtr,
-			&GetBufferDescriptor(pg_atomic_read_u32(&matchElement->buffer))->tag
+			GetBufferTag(pg_atomic_read_u32(&matchElement->buffer))
 		))
 			break;
 
