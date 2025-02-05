@@ -18,6 +18,7 @@
 #include "storage/bufmgr.h"
 
 BufferDescPadded *BufferDescriptors;
+BufferTag *BufferTags;
 char	   *BufferBlocks;
 ConditionVariableMinimallyPadded *BufferIOCVArray;
 WritebackContext BackendWritebackContext;
@@ -67,6 +68,7 @@ void
 BufferManagerShmemInit(void)
 {
 	bool		foundBufs,
+				foundTags,
 				foundDescs,
 				foundIOCV,
 				foundBufCkpt;
@@ -76,6 +78,10 @@ BufferManagerShmemInit(void)
 		ShmemInitStruct("Buffer Descriptors",
 						NBuffers * sizeof(BufferDescPadded),
 						&foundDescs);
+	BufferTags = (BufferTag *)
+		ShmemInitStruct("Buffer Tags",
+						NBuffers * sizeof(BufferTag),
+						&foundTags);
 
 	/* Align buffer pool on IO page size boundary. */
 	BufferBlocks = (char *)
@@ -101,10 +107,10 @@ BufferManagerShmemInit(void)
 		ShmemInitStruct("Checkpoint BufferIds",
 						NBuffers * sizeof(CkptSortItem), &foundBufCkpt);
 
-	if (foundDescs || foundBufs || foundIOCV || foundBufCkpt)
+	if (foundDescs || foundTags || foundBufs || foundIOCV || foundBufCkpt)
 	{
 		/* should find all of these, or none of them */
-		Assert(foundDescs && foundBufs && foundIOCV && foundBufCkpt);
+		Assert(foundDescs && foundTags && foundBufs && foundIOCV && foundBufCkpt);
 		/* note: this path is only taken in EXEC_BACKEND case */
 	}
 	else

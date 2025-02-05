@@ -243,7 +243,6 @@ BufMappingPartitionLockByIndex(uint32 index)
  */
 typedef struct BufferDesc
 {
-	BufferTag	tag;			/* ID of page contained in buffer */
 	int			buf_id;			/* buffer's index number (from 0) */
 
 	/* state of the tag, containing flags, refcount and usagecount */
@@ -307,11 +306,13 @@ typedef struct WritebackContext
 
 /* in buf_init.c */
 extern PGDLLIMPORT BufferDescPadded *BufferDescriptors;
+extern PGDLLIMPORT BufferTag *BufferTags;
 extern PGDLLIMPORT ConditionVariableMinimallyPadded *BufferIOCVArray;
 extern PGDLLIMPORT WritebackContext BackendWritebackContext;
 
 /* in localbuf.c */
 extern PGDLLIMPORT BufferDesc *LocalBufferDescriptors;
+extern PGDLLIMPORT BufferTag *LocalBufferTags;
 
 
 static inline BufferDesc *
@@ -323,7 +324,7 @@ GetBufferDescriptor(uint32 id)
 static inline BufferTag *
 GetBufferTag(uint32 id)
 {
-	return &(BufferDescriptors[id]).bufferdesc.tag;
+	return &BufferTags[id];
 }
 
 static inline BufferDesc *
@@ -335,7 +336,7 @@ GetLocalBufferDescriptor(uint32 id)
 static inline BufferTag *
 GetLocalBufferTag(uint32 id)
 {
-	return &LocalBufferDescriptors[id].tag;
+	return &LocalBufferTags[id];
 }
 
 static inline Buffer
