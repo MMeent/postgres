@@ -204,9 +204,9 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 		scan->xs_hitupdesc = so->giststate->fetchTupdesc;
 
 		/* Also create a memory context that will hold the returned tuples */
-		so->pageDataCxt = AllocSetContextCreate(so->giststate->scanCxt,
-												"GiST page data context",
-												ALLOCSET_DEFAULT_SIZES);
+		so->nos.pageDataCxt = AllocSetContextCreate(so->giststate->scanCxt,
+													"GiST page data context",
+													ALLOCSET_DEFAULT_SIZES);
 	}
 
 	/* create new, empty pairing heap for search queue */
@@ -347,6 +347,11 @@ void
 gistendscan(IndexScanDesc scan)
 {
 	GISTScanOpaque so = (GISTScanOpaque) scan->opaque;
+	if (BufferIsValid(so->vmbuf))
+	{
+		ReleaseBuffer(so->vmbuf);
+		so->vmbuf = InvalidBuffer;
+	}
 
 	/*
 	 * freeGISTstate is enough to clean up everything made by gistbeginscan,

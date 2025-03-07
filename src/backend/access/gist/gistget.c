@@ -17,6 +17,7 @@
 #include "access/genam.h"
 #include "access/gist_private.h"
 #include "access/relscan.h"
+#include "access/tableam.h"
 #include "lib/pairingheap.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -394,10 +395,14 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 		return;
 	}
 
-	so->nPageData = so->curPageData = 0;
+	if (scan->numberOfOrderBys)
+		so->os.nsortData = 0;
+	else
+		so->nos.nPageData = so->nos.curPageData = 0;
+
 	scan->xs_hitup = NULL;		/* might point into pageDataCxt */
-	if (so->pageDataCxt)
-		MemoryContextReset(so->pageDataCxt);
+	if (so->nos.pageDataCxt)
+		MemoryContextReset(so->nos.pageDataCxt);
 
 	/*
 	 * We save the LSN of the page as we read it, so that we know whether it
@@ -457,9 +462,9 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 			/*
 			 * Non-ordered scan, so report tuples in so->pageData[]
 			 */
-			so->pageData[so->nPageData].heapPtr = it->t_tid;
-			so->pageData[so->nPageData].recheck = recheck;
-			so->pageData[so->nPageData].offnum = i;
+			so->nos.pageData[so->nos.nPageData].heapPtr = it->t_tid;
+			so->nos.pageData[so->nos.nPageData].recheck = recheck;
+			so->nos.pageData[so->nos.nPageData].offnum = i;
 
 			/*
 			 * In an index-only scan, also fetch the data from the tuple.  The
@@ -467,12 +472,12 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 			 */
 			if (scan->xs_want_itup)
 			{
-				oldcxt = MemoryContextSwitchTo(so->pageDataCxt);
-				so->pageData[so->nPageData].recontup =
+				oldcxt = MemoryContextSwitchTo(so->nos.pageDataCxt);
+				so->nos.pageData[so->nos.nPageData].recontup =
 					gistFetchTuple(giststate, r, it);
 				MemoryContextSwitchTo(oldcxt);
 			}
-			so->nPageData++;
+			so->nos.nPageData++;
 		}
 		else
 		{
@@ -501,7 +506,11 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 				 * In an index-only scan, also fetch the data from the tuple.
 				 */
 				if (scan->xs_want_itup)
+				{
 					item->data.heap.recontup = gistFetchTuple(giststate, r, it);
+					so->os.sortData[so->os.nsortData] = &item->data.heap;
+					so->os.nsortData += 1;
+				}
 			}
 			else
 			{
@@ -526,7 +535,97 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 		}
 	}
 
-	UnlockReleaseBuffer(buffer);
+	/* Allow writes to the buffer, but don't yet allow VACUUM */
+	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+
+	/*
+	 * If we're in an index-only scan, we need to do visibility checks before
+	 * we release the pin, so that VACUUM can't clean up dead tuples from this
+	 * index page and mark the page ALL_VISIBLE before the tuple was returned.
+	 *
+	 * See also docs section "Index Locking Considerations".
+	 */
+	if (scan->xs_want_itup)
+	{
+		TM_IndexVisibilityCheckOp	op;
+		op.vmbuf = &so->vmbuf;
+
+		if (scan->numberOfOrderBys > 0)
+		{
+			op.nchecktids = so->os.nsortData;
+
+			if (op.nchecktids > 0)
+			{
+				op.checktids = palloc(op.nchecktids * sizeof(TM_VisCheck));
+
+				for (int off = 0; off < op.nchecktids; off++)
+				{
+					op.checktids[off].vischeckresult = TMVC_Unchecked;
+					op.checktids[off].tid = so->os.sortData[off]->heapPtr;
+					op.checktids[off].idxoffnum = off;
+					Assert(ItemPointerIsValid(&op.checktids[off].tid));
+				}
+			}
+		}
+		else
+		{
+			op.nchecktids = so->nos.nPageData;
+
+			if (op.nchecktids > 0)
+			{
+				op.checktids = palloc_array(TM_VisCheck, op.nchecktids);
+
+				for (int off = 0; off < op.nchecktids; off++)
+				{
+					op.checktids[off].vischeckresult = TMVC_Unchecked;
+					op.checktids[off].tid = so->nos.pageData[off].heapPtr;
+					op.checktids[off].idxoffnum = off;
+					Assert(ItemPointerIsValid(&op.checktids[off].tid));
+				}
+			}
+		}
+
+		if (op.nchecktids > 0)
+		{
+			table_index_vischeck_tuples(scan->heapRelation, &op);
+
+			if (scan->numberOfOrderBys > 0)
+			{
+				for (int off = 0; off < op.nchecktids; off++)
+				{
+					TM_VisCheck *check = &op.checktids[off];
+					GISTSearchHeapItem *item = so->os.sortData[check->idxoffnum];
+
+					/* sanity checks */
+					Assert(check->idxoffnum < op.nchecktids);
+					Assert(ItemPointerEquals(&item->heapPtr, &check->tid));
+
+					item->visrecheck = check->vischeckresult;
+				}
+				/* reset state */
+				so->os.nsortData = 0;
+			}
+			else
+			{
+				for (int off = 0; off < op.nchecktids; off++)
+				{
+					TM_VisCheck *check = &op.checktids[off];
+					GISTSearchHeapItem *item = &so->nos.pageData[check->idxoffnum];
+
+					Assert(check->idxoffnum < op.nchecktids);
+					Assert(ItemPointerEquals(&item->heapPtr, &check->tid));
+
+					item->visrecheck = check->vischeckresult;
+				}
+			}
+
+			/* clean up the used resources */
+			pfree(op.checktids);
+		}
+	}
+
+	/* Allow VACUUM to process the buffer again */
+	ReleaseBuffer(buffer);
 }
 
 /*
@@ -588,7 +687,10 @@ getNextNearest(IndexScanDesc scan)
 
 			/* in an index-only scan, also return the reconstructed tuple. */
 			if (scan->xs_want_itup)
+			{
 				scan->xs_hitup = item->data.heap.recontup;
+				scan->xs_visrecheck = item->data.heap.visrecheck;
+			}
 			res = true;
 		}
 		else
@@ -629,10 +731,10 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 			scan->instrument->nsearches++;
 
 		so->firstCall = false;
-		so->curPageData = so->nPageData = 0;
+		so->nos.curPageData = so->nos.nPageData = 0;
 		scan->xs_hitup = NULL;
-		if (so->pageDataCxt)
-			MemoryContextReset(so->pageDataCxt);
+		if (so->nos.pageDataCxt)
+			MemoryContextReset(so->nos.pageDataCxt);
 
 		fakeItem.blkno = GIST_ROOT_BLKNO;
 		memset(&fakeItem.data.parentlsn, 0, sizeof(GistNSN));
@@ -649,9 +751,9 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 		/* Fetch tuples index-page-at-a-time */
 		for (;;)
 		{
-			if (so->curPageData < so->nPageData)
+			if (so->nos.curPageData < so->nos.nPageData)
 			{
-				if (scan->kill_prior_tuple && so->curPageData > 0)
+				if (scan->kill_prior_tuple && so->nos.curPageData > 0)
 				{
 
 					if (so->killedItems == NULL)
@@ -667,17 +769,20 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 					}
 					if (so->numKilled < MaxIndexTuplesPerPage)
 						so->killedItems[so->numKilled++] =
-							so->pageData[so->curPageData - 1].offnum;
+							so->nos.pageData[so->nos.curPageData - 1].offnum;
 				}
 				/* continuing to return tuples from a leaf page */
-				scan->xs_heaptid = so->pageData[so->curPageData].heapPtr;
-				scan->xs_recheck = so->pageData[so->curPageData].recheck;
+				scan->xs_heaptid = so->nos.pageData[so->nos.curPageData].heapPtr;
+				scan->xs_recheck = so->nos.pageData[so->nos.curPageData].recheck;
 
 				/* in an index-only scan, also return the reconstructed tuple */
 				if (scan->xs_want_itup)
-					scan->xs_hitup = so->pageData[so->curPageData].recontup;
+				{
+					scan->xs_hitup = so->nos.pageData[so->nos.curPageData].recontup;
+					scan->xs_visrecheck = so->nos.pageData[so->nos.curPageData].visrecheck;
+				}
 
-				so->curPageData++;
+				so->nos.curPageData++;
 
 				return true;
 			}
@@ -687,8 +792,8 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 			 * necessary
 			 */
 			if (scan->kill_prior_tuple
-				&& so->curPageData > 0
-				&& so->curPageData == so->nPageData)
+				&& so->nos.curPageData > 0
+				&& so->nos.curPageData == so->nos.nPageData)
 			{
 
 				if (so->killedItems == NULL)
@@ -704,7 +809,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 				}
 				if (so->numKilled < MaxIndexTuplesPerPage)
 					so->killedItems[so->numKilled++] =
-						so->pageData[so->curPageData - 1].offnum;
+						so->nos.pageData[so->nos.curPageData - 1].offnum;
 			}
 			/* find and process the next index page */
 			do
@@ -733,7 +838,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 				gistScanPage(scan, item, item->distances, NULL, NULL);
 
 				pfree(item);
-			} while (so->nPageData == 0);
+			} while (so->nos.nPageData == 0);
 		}
 	}
 }
@@ -756,10 +861,10 @@ gistgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		scan->instrument->nsearches++;
 
 	/* Begin the scan by processing the root page */
-	so->curPageData = so->nPageData = 0;
+	so->nos.curPageData = so->nos.nPageData = 0;
 	scan->xs_hitup = NULL;
-	if (so->pageDataCxt)
-		MemoryContextReset(so->pageDataCxt);
+	if (so->nos.pageDataCxt)
+		MemoryContextReset(so->nos.pageDataCxt);
 
 	fakeItem.blkno = GIST_ROOT_BLKNO;
 	memset(&fakeItem.data.parentlsn, 0, sizeof(GistNSN));

@@ -22,6 +22,7 @@
 #include "storage/buffile.h"
 #include "utils/hsearch.h"
 #include "access/genam.h"
+#include "tableam.h"
 
 /*
  * Maximum number of "halves" a page can be split into in one operation.
@@ -124,6 +125,8 @@ typedef struct GISTSearchHeapItem
 								 * index-only scans */
 	OffsetNumber offnum;		/* track offset in page to mark tuple as
 								 * LP_DEAD */
+	uint8		visrecheck;		/* Cached visibility check result for this
+								 * heap pointer. */
 } GISTSearchHeapItem;
 
 /* Unvisited item, either index page or heap tuple */
@@ -170,12 +173,24 @@ typedef struct GISTScanOpaqueData
 	BlockNumber curBlkno;		/* current number of block */
 	GistNSN		curPageLSN;		/* pos in the WAL stream when page was read */
 
-	/* In a non-ordered search, returnable heap items are stored here: */
-	GISTSearchHeapItem pageData[BLCKSZ / sizeof(IndexTupleData)];
-	OffsetNumber nPageData;		/* number of valid items in array */
-	OffsetNumber curPageData;	/* next item to return */
-	MemoryContext pageDataCxt;	/* context holding the fetched tuples, for
-								 * index-only scans */
+	/* info used by Index-Only Scans */
+	Buffer		vmbuf;			/* reusable buffer for IOS' vm lookups */
+
+	union {
+		struct {
+			/* In a non-ordered search, returnable heap items are stored here: */
+			GISTSearchHeapItem pageData[BLCKSZ / sizeof(IndexTupleData)];
+			OffsetNumber nPageData;		/* number of valid items in array */
+			OffsetNumber curPageData;	/* next item to return */
+			MemoryContext pageDataCxt;	/* context holding the fetched tuples,
+										 * for index-only scans */
+		} nos;
+		struct {
+			/* In an ordered search, we use this as scratch space */
+			GISTSearchHeapItem *sortData[BLCKSZ / sizeof(IndexTupleData)];
+			OffsetNumber	nsortData;	/* number of items in sortData */
+		} os;
+	};
 } GISTScanOpaqueData;
 
 typedef GISTScanOpaqueData *GISTScanOpaque;
