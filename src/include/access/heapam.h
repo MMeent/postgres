@@ -368,6 +368,8 @@ extern void simple_heap_update(Relation relation, ItemPointer otid,
 
 extern TransactionId heap_index_delete_tuples(Relation rel,
 											  TM_IndexDeleteOp *delstate);
+extern void heap_index_vischeck_tuples(Relation rel,
+									   TM_IndexVisibilityCheckOp *checkop);
 
 /* in heap/pruneheap.c */
 struct GlobalVisState;

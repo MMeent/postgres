@@ -248,6 +248,49 @@ typedef struct TM_IndexDeleteOp
 	TM_IndexStatus *status;
 } TM_IndexDeleteOp;
 
+/*
+ * State used when calling table_index_delete_tuples()
+ *
+ * Index-only scans need to know the visibility of the associated table tuples
+ * before they can return the index tuple.  If the index tuple is known to be
+ * visible with a cheap check, we can return it directly without requesting
+ * the visibility info from the table AM directly.
+ *
+ * This AM API exposes a cheap visibility checking API to indexes, allowing
+ * these indexes to check multiple tuples worth of visibility info at once,
+ * and allowing the AM to store these checks, improving the pinning ergonomics
+ * of index AMs by allowing a scan to cache index tuples in memory without
+ * holding pins on index tuples' pages until the index tuples were returned.
+ *
+ * The AM is called with a list of TIDs, and its output will indicate the
+ * visibility state of each tuple: Unchecked, Dead, MaybeVisible, or Visible.
+ *
+ * HeapAM's implementation of visibility maps only allows for cheap checks of
+ * *definitely visible*; all other results are *maybe visible*. A result for
+ * *definitely not visible* aka dead is currently not accounted for by lack of
+ * Table AMs which support such visibility lookups cheaply.
+ */
+typedef enum TMVC_Result
+{
+	TMVC_Unchecked,
+	TMVC_MaybeVisible,
+	TMVC_Visible,
+} TMVC_Result;
+
+typedef struct TM_VisCheck
+{
+	ItemPointerData	tid;			/* table TID from index tuple */
+	OffsetNumber	idxoffnum;		/* identifier for the TID in this call */
+	TMVC_Result		vischeckresult;	/* output of the visibilitycheck */
+} TM_VisCheck;
+
+typedef struct TM_IndexVisibilityCheckOp
+{
+	int			nchecktids;			/* number of TIDs to check */
+	Buffer	   *vmbuf;				/* pointer to VM buffer to reuse across calls */
+	TM_VisCheck *checktids;			/* the checks to execute */
+} TM_IndexVisibilityCheckOp;
+
 /* "options" flag bits for table_tuple_insert */
 /* TABLE_INSERT_SKIP_WAL was 0x0001; RelationNeedsWAL() now governs */
 #define TABLE_INSERT_SKIP_FSM		0x0002
@@ -493,6 +536,10 @@ typedef struct TableAmRoutine
 	/* see table_index_delete_tuples() */
 	TransactionId (*index_delete_tuples) (Relation rel,
 										  TM_IndexDeleteOp *delstate);
+
+	/* see table_index_vischeck_tuples() */
+	void		(*index_vischeck_tuples) (Relation rel,
+										  TM_IndexVisibilityCheckOp *checkop);
 
 
 	/* ------------------------------------------------------------------------
@@ -1316,6 +1363,49 @@ static inline TransactionId
 table_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstate)
 {
 	return rel->rd_tableam->index_delete_tuples(rel, delstate);
+}
+
+/*
+ * Determine rough visibility information of index tuples based on each TID.
+ *
+ * Determines which entries from index AM caller's TM_IndexVisibilityCheckOp
+ * state point to TMVC_VISIBLE or TMVC_MAYBE_VISIBLE table tuples, at low IO
+ * overhead.  For the heap AM, the implementation is effectively a wrapper
+ * around VM_ALL_FROZEN.
+ *
+ * On return, all TM_VisChecks indicated by checkop->checktids will have been
+ * updated with the correct visibility status.
+ *
+ * Note that there is no value for "definitely dead" tuples, as the Heap AM
+ * doesn't have an efficient method to determine that a tuple is dead to all
+ * users, as it would have to go into the heap.  If and when AMs are built
+ * that would support VM checks with an equivalent to VM_ALL_DEAD this
+ * decision can be reconsidered.
+ */
+static inline void
+table_index_vischeck_tuples(Relation rel, TM_IndexVisibilityCheckOp *checkop)
+{
+	return rel->rd_tableam->index_vischeck_tuples(rel, checkop);
+}
+
+static inline TMVC_Result
+table_index_vischeck_tuple(Relation rel, Buffer *vmbuffer, ItemPointer tid)
+{
+	TM_IndexVisibilityCheckOp checkOp;
+	TM_VisCheck		op;
+
+	op.idxoffnum = 0;
+	op.tid = *tid;
+	op.vischeckresult = TMVC_Unchecked;
+	checkOp.checktids = &op;
+	checkOp.nchecktids = 1;
+	checkOp.vmbuf = vmbuffer;
+
+	rel->rd_tableam->index_vischeck_tuples(rel, &checkOp);
+
+	Assert(op.vischeckresult != TMVC_Unchecked);
+
+	return op.vischeckresult;
 }
 
 

@@ -2648,6 +2648,7 @@ static const TableAmRoutine heapam_methods = {
 	.tuple_tid_valid = heapam_tuple_tid_valid,
 	.tuple_satisfies_snapshot = heapam_tuple_satisfies_snapshot,
 	.index_delete_tuples = heap_index_delete_tuples,
+	.index_vischeck_tuples = heap_index_vischeck_tuples,
 
 	.relation_set_new_filelocator = heapam_relation_set_new_filelocator,
 	.relation_nontransactional_truncate = heapam_relation_nontransactional_truncate,

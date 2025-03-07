@@ -26,6 +26,9 @@
 
 struct ParallelTableScanDescData;
 
+enum TMVC_Result;
+
+
 /*
  * Generic descriptor for table scans. This is the base-class for table scans,
  * which needs to be embedded in the scans of individual AMs.
@@ -175,6 +178,8 @@ typedef struct IndexScanDescData
 	IndexFetchTableData *xs_heapfetch;
 
 	bool		xs_recheck;		/* T means scan keys must be rechecked */
+
+	int			xs_visrecheck;	/* TM_VisCheckResult from tableam.h */
 
 	/*
 	 * When fetching with an ordering operator, the values of the ORDER BY
