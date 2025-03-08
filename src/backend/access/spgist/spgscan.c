@@ -30,7 +30,8 @@
 typedef void (*storeRes_func) (SpGistScanOpaque so, ItemPointer heapPtr,
 							   Datum leafValue, bool isNull,
 							   SpGistLeafTuple leafTuple, bool recheck,
-							   bool recheckDistances, double *distances);
+							   bool recheckDistances, double *distances,
+							   TMVC_Result visrecheck);
 
 /*
  * Pairing heap comparison function for the SpGistSearchItem queue.
@@ -142,6 +143,7 @@ spgAddStartItem(SpGistScanOpaque so, bool isnull)
 	startEntry->traversalValue = NULL;
 	startEntry->recheck = false;
 	startEntry->recheckDistances = false;
+	startEntry->visrecheck = TMVC_Unchecked;
 
 	spgAddSearchItemToQueue(so, startEntry);
 }
@@ -386,6 +388,19 @@ spgrescan(IndexScanDesc scan, ScanKey scankey, int nscankeys,
 	if (scankey && scan->numberOfKeys > 0)
 		memcpy(scan->keyData, scankey, scan->numberOfKeys * sizeof(ScanKeyData));
 
+	/* prepare index-only scan requirements */
+	so->nReorderThisPage = 0;
+	if (scan->xs_want_itup)
+	{
+		if (so->visrecheck == NULL)
+			so->visrecheck = palloc(MaxIndexTuplesPerPage);
+
+		if (scan->numberOfOrderBys > 0 && so->items == NULL)
+		{
+			so->items = palloc_array(SpGistSearchItem *, MaxIndexTuplesPerPage);
+		}
+	}
+
 	/* initialize order-by data if needed */
 	if (orderbys && scan->numberOfOrderBys > 0)
 	{
@@ -453,6 +468,9 @@ spgendscan(IndexScanDesc scan)
 		pfree(scan->xs_orderbynulls);
 	}
 
+	if (BufferIsValid(so->vmbuf))
+		ReleaseBuffer(so->vmbuf);
+
 	pfree(so);
 }
 
@@ -502,6 +520,7 @@ spgNewHeapItem(SpGistScanOpaque so, int level, SpGistLeafTuple leafTuple,
 	item->isLeaf = true;
 	item->recheck = recheck;
 	item->recheckDistances = recheckDistances;
+	item->visrecheck = TMVC_Unchecked;
 
 	return item;
 }
@@ -584,6 +603,14 @@ spgLeafTest(SpGistScanOpaque so, SpGistSearchItem *item,
 														isnull,
 														distances);
 
+			if (so->want_itup)
+			{
+				Assert(PointerIsValid(so->items));
+
+				so->items[so->nReorderThisPage] = heapItem;
+				so->nReorderThisPage++;
+			}
+
 			spgAddSearchItemToQueue(so, heapItem);
 
 			MemoryContextSwitchTo(oldCxt);
@@ -593,7 +620,7 @@ spgLeafTest(SpGistScanOpaque so, SpGistSearchItem *item,
 			/* non-ordered scan, so report the item right away */
 			Assert(!recheckDistances);
 			storeRes(so, &leafTuple->heapPtr, leafValue, isnull,
-					 leafTuple, recheck, false, NULL);
+					 leafTuple, recheck, false, NULL, TMVC_Unchecked);
 			*reportedSome = true;
 		}
 	}
@@ -807,6 +834,93 @@ spgTestLeafTuple(SpGistScanOpaque so,
 }
 
 /*
+ * Pupulate so->visrecheck based on tuples which are cached for a currently
+ * pinned page.
+ */
+static void
+spgPopulateUnorderedVischecks(IndexScanDesc scan, SpGistScanOpaqueData *so)
+{
+	TM_IndexVisibilityCheckOp op;
+
+	Assert(scan->numberOfOrderBys == 0);
+
+	if (so->nPtrs == 0)
+		return;
+
+	op.nchecktids = so->nPtrs;
+	op.checktids = palloc_array(TM_VisCheck, so->nPtrs);
+	op.vmbuf = &so->vmbuf;
+
+	for (int i = 0; i < op.nchecktids; i++)
+	{
+		op.checktids[i].idxoffnum = i;
+		op.checktids[i].vischeckresult = TMVC_Unchecked;
+		op.checktids[i].tid = so->heapPtrs[i];
+
+		Assert(ItemPointerIsValid(&op.checktids[i].tid));
+	}
+
+	table_index_vischeck_tuples(scan->heapRelation, &op);
+
+	for (int i = 0; i < op.nchecktids; i++)
+	{
+		TM_VisCheck *check = &op.checktids[i];
+
+		Assert(ItemPointerEquals(&so->heapPtrs[check->idxoffnum],
+								 &check->tid));
+		Assert(check->idxoffnum < op.nchecktids);
+
+		so->visrecheck[check->idxoffnum] = check->vischeckresult;
+	}
+
+	pfree(op.checktids);
+}
+
+/* pupulate so->visrecheck based on current cached tuples */
+static void
+spgPopulateOrderedVisChecks(IndexScanDesc scan, SpGistScanOpaqueData *so)
+{
+	TM_IndexVisibilityCheckOp op;
+
+	if (so->nReorderThisPage == 0)
+		return;
+
+	Assert(so->nReorderThisPage > 0);
+	Assert(scan->numberOfOrderBys > 0);
+	Assert(PointerIsValid(so->items));
+
+	op.nchecktids = so->nReorderThisPage;
+	op.checktids = palloc_array(TM_VisCheck, so->nReorderThisPage);
+	op.vmbuf = &so->vmbuf;
+
+	for (int i = 0; i < op.nchecktids; i++)
+	{
+		op.checktids[i].idxoffnum = i;
+		op.checktids[i].vischeckresult = TMVC_Unchecked;
+		op.checktids[i].tid = so->items[i]->heapPtr;
+
+		Assert(ItemPointerIsValid(&so->items[i]->heapPtr));
+		Assert(so->items[i]->isLeaf);
+	}
+
+	table_index_vischeck_tuples(scan->heapRelation, &op);
+
+	for (int i = 0; i < op.nchecktids; i++)
+	{
+		TM_VisCheck *check = &op.checktids[i];
+
+		Assert(check->idxoffnum < op.nchecktids);
+		Assert(ItemPointerEquals(&check->tid,
+								 &so->items[check->idxoffnum]->heapPtr));
+
+		so->items[check->idxoffnum]->visrecheck = check->vischeckresult;
+	}
+
+	pfree(op.checktids);
+	so->nReorderThisPage = 0;
+}
+
+/*
  * Walk the tree and report all tuples passing the scan quals to the storeRes
  * subroutine.
  *
@@ -814,8 +928,8 @@ spgTestLeafTuple(SpGistScanOpaque so,
  * next page boundary once we have reported at least one tuple.
  */
 static void
-spgWalk(Relation index, SpGistScanOpaque so, bool scanWholeIndex,
-		storeRes_func storeRes)
+spgWalk(IndexScanDesc scan, Relation index, SpGistScanOpaque so,
+		bool scanWholeIndex, storeRes_func storeRes)
 {
 	Buffer		buffer = InvalidBuffer;
 	bool		reportedSome = false;
@@ -835,9 +949,23 @@ redirect:
 		{
 			/* We store heap items in the queue only in case of ordered search */
 			Assert(so->numberOfNonNullOrderBys > 0);
+
+			/*
+			 * If an item we found on a page is retrieved immediately after
+			 * processing that page, we won't yet have released the page pin,
+			 * and thus won't yet have processed the visibility data of the
+			 * page's (now) ordered tuples.
+			 * Do that now, so that all tuples on the page we're about to
+			 * unpin were checked for visibility before we returned any. 
+			 */
+			if (so->want_itup && so->nReorderThisPage)
+				spgPopulateOrderedVisChecks(scan, so);
+
+			Assert(!so->want_itup || item->visrecheck != TMVC_Unchecked);
 			storeRes(so, &item->heapPtr, item->value, item->isNull,
 					 item->leafTuple, item->recheck,
-					 item->recheckDistances, item->distances);
+					 item->recheckDistances, item->distances,
+					 item->visrecheck);
 			reportedSome = true;
 		}
 		else
@@ -854,7 +982,15 @@ redirect:
 			}
 			else if (blkno != BufferGetBlockNumber(buffer))
 			{
-				UnlockReleaseBuffer(buffer);
+				LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
+
+				Assert(so->numberOfOrderBys >= 0);
+				if (so->numberOfOrderBys == 0)
+					spgPopulateUnorderedVischecks(scan, so);
+				else
+					spgPopulateOrderedVisChecks(scan, so);
+
+				ReleaseBuffer(buffer);
 				buffer = ReadBuffer(index, blkno);
 				LockBuffer(buffer, BUFFER_LOCK_SHARE);
 			}
@@ -922,16 +1058,36 @@ redirect:
 	}
 
 	if (buffer != InvalidBuffer)
-		UnlockReleaseBuffer(buffer);
-}
+	{
+		/* Unlock the buffer for concurrent accesses except VACUUM */
+		LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 
+		/*
+		 * If we're in an index-only scan, pre-check visibility of the tuples,
+		 * so we can drop the pin without causing visibility bugs.
+		 */
+		if (so->want_itup)
+		{
+			Assert(scan->numberOfOrderBys >= 0);
+
+			if (scan->numberOfOrderBys == 0)
+				spgPopulateUnorderedVischecks(scan, so);
+			else
+				spgPopulateOrderedVisChecks(scan, so);
+		}
+
+		/* Release the page */
+		ReleaseBuffer(buffer);
+	}
+}
 
 /* storeRes subroutine for getbitmap case */
 static void
 storeBitmap(SpGistScanOpaque so, ItemPointer heapPtr,
 			Datum leafValue, bool isnull,
 			SpGistLeafTuple leafTuple, bool recheck,
-			bool recheckDistances, double *distances)
+			bool recheckDistances, double *distances,
+			TMVC_Result visres)
 {
 	Assert(!recheckDistances && !distances);
 	tbm_add_tuples(so->tbm, heapPtr, 1, recheck);
@@ -949,7 +1105,7 @@ spggetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 	so->tbm = tbm;
 	so->ntids = 0;
 
-	spgWalk(scan->indexRelation, so, true, storeBitmap);
+	spgWalk(scan, scan->indexRelation, so, true, storeBitmap);
 
 	return so->ntids;
 }
@@ -959,12 +1115,15 @@ static void
 storeGettuple(SpGistScanOpaque so, ItemPointer heapPtr,
 			  Datum leafValue, bool isnull,
 			  SpGistLeafTuple leafTuple, bool recheck,
-			  bool recheckDistances, double *nonNullDistances)
+			  bool recheckDistances, double *nonNullDistances,
+			  TMVC_Result visres)
 {
 	Assert(so->nPtrs < MaxIndexTuplesPerPage);
 	so->heapPtrs[so->nPtrs] = *heapPtr;
 	so->recheck[so->nPtrs] = recheck;
 	so->recheckDistances[so->nPtrs] = recheckDistances;
+	if (so->want_itup)
+		so->visrecheck[so->nPtrs] = visres;
 
 	if (so->numberOfOrderBys > 0)
 	{
@@ -1041,6 +1200,10 @@ spggettuple(IndexScanDesc scan, ScanDirection dir)
 			scan->xs_heaptid = so->heapPtrs[so->iPtr];
 			scan->xs_recheck = so->recheck[so->iPtr];
 			scan->xs_hitup = so->reconTups[so->iPtr];
+			if (so->want_itup)
+				scan->xs_visrecheck = so->visrecheck[so->iPtr];
+
+			Assert(!scan->xs_want_itup || scan->xs_visrecheck != TMVC_Unchecked);
 
 			if (so->numberOfOrderBys > 0)
 				index_store_float8_orderby_distances(scan, so->orderByTypes,
@@ -1070,7 +1233,7 @@ spggettuple(IndexScanDesc scan, ScanDirection dir)
 		}
 		so->iPtr = so->nPtrs = 0;
 
-		spgWalk(scan->indexRelation, so, false, storeGettuple);
+		spgWalk(scan, scan->indexRelation, so, false, storeGettuple);
 
 		if (so->nPtrs == 0)
 			break;				/* must have completed scan */
