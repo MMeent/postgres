@@ -25,7 +25,7 @@
 #include "utils/rel.h"
 
 
-static void _bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp);
+static void _bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, Buffer *vmbuf);
 static Buffer _bt_moveright(Relation rel, Relation heaprel, BTScanInsert key,
 							Buffer buf, bool forupdate, BTStack stack,
 							int access);
@@ -64,13 +64,88 @@ static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir);
  * See nbtree/README section on making concurrent TID recycling safe.
  */
 static void
-_bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp)
+_bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, Buffer *vmbuf)
 {
 	_bt_unlockbuf(scan->indexRelation, sp->buf);
 
+	/*
+	 * Do some visibility checks if this is an index-only scan; allowing us to
+	 * drop the pin on this page before we have returned all tuples from this
+	 * IOS to the executor.
+	 */
+	if (scan->xs_want_itup)
+	{
+		TM_IndexVisibilityCheckOp visCheck;
+		int		offset = sp->firstItem;
+
+		visCheck.nchecktids = 1 + sp->lastItem - offset;
+		visCheck.checktids = palloc_array(TM_VisCheck,
+										  visCheck.nchecktids);
+		visCheck.vmbuf = vmbuf;
+
+		for (int i = 0; i < visCheck.nchecktids; i++)
+		{
+			int		itemidx = offset + i;
+
+			Assert(sp->items[itemidx].visrecheck == TMVC_Unchecked);
+			Assert(ItemPointerIsValid(&sp->items[itemidx].heapTid));
+
+			visCheck.checktids[i].tid = sp->items[itemidx].heapTid;
+			visCheck.checktids[i].idxoffnum = itemidx;
+			visCheck.checktids[i].vischeckresult = TMVC_Unchecked;
+		}
+
+		table_index_vischeck_tuples(scan->heapRelation, &visCheck);
+
+		for (int i = 0; i < visCheck.nchecktids; i++)
+		{
+			TM_VisCheck *check = &visCheck.checktids[i];
+			BTScanPosItem *item = &sp->items[check->idxoffnum];
+
+			/* We must have a valid visibility check result */
+			Assert(check->vischeckresult != TMVC_Unchecked);
+			/* The offset number should still indicate the right item */
+			Assert(ItemPointerEquals(&check->tid, &item->heapTid));
+
+			/* Store the visibility check result */
+			item->visrecheck = check->vischeckresult;
+		}
+
+		/* release temporary resources */
+		pfree(visCheck.checktids);
+	}
+
+	/*
+	 * We may need to hold a pin on the page for one of several reasons:
+	 *
+	 * 1.) To safely apply kill_prior_tuple, we need to know that the tuples
+	 * were not removed from the page (and subsequently re-inserted).
+	 * A page's LSN can also allow us to detect modifications on the page,
+	 * which then allows us to bail out of setting the hint bits, but that
+	 * requires the index to be WAL-logged; so unless the index is WAL-logged
+	 * we must hold a pin on the page to apply the kill_prior_tuple
+	 * optimization.
+	 *
+	 * 2.) Non-MVCC scans need pin coupling to make sure the scan covers
+	 * exactly the whole index keyspace.
+	 *
+	 * 3.) For Index-Only Scans, the scan needs to check the visibility of the
+	 * table tuple while the relevant index tuple is guaranteed to still be
+	 * contained in the index (so that vacuum hasn't yet marked any pages that
+	 * could contain the value as ALL_VISIBLE after reclaiming a dead tuple
+	 * that might be buffered in the scan).  A pin must therefore be held
+	 * at least while the basic visibility of the page's tuples is being
+	 * checked.
+	 *
+	 * For cases 1 and 2, we must hold the pin after we've finished processing
+	 * the index page.
+	 *
+	 * For case 3, we can release the pin if we first do the visibility checks
+	 * of to-be-returned tuples using table_index_vischeck_tuples, which we've
+	 * done just above.
+	 */
 	if (IsMVCCSnapshot(scan->xs_snapshot) &&
-		RelationNeedsWAL(scan->indexRelation) &&
-		!scan->xs_want_itup)
+		RelationNeedsWAL(scan->indexRelation))
 	{
 		ReleaseBuffer(sp->buf);
 		sp->buf = InvalidBuffer;
@@ -2001,6 +2076,8 @@ _bt_saveitem(BTScanOpaque so, int itemIndex,
 
 	currItem->heapTid = itup->t_tid;
 	currItem->indexOffset = offnum;
+	currItem->visrecheck = TMVC_Unchecked;
+
 	if (so->currTuples)
 	{
 		Size		itupsz = IndexTupleSize(itup);
@@ -2031,6 +2108,8 @@ _bt_setuppostingitems(BTScanOpaque so, int itemIndex, OffsetNumber offnum,
 
 	currItem->heapTid = *heapTid;
 	currItem->indexOffset = offnum;
+	currItem->visrecheck = TMVC_Unchecked;
+
 	if (so->currTuples)
 	{
 		/* Save base IndexTuple (truncate posting list) */
@@ -2067,6 +2146,7 @@ _bt_savepostingitem(BTScanOpaque so, int itemIndex, OffsetNumber offnum,
 
 	currItem->heapTid = *heapTid;
 	currItem->indexOffset = offnum;
+	currItem->visrecheck = TMVC_Unchecked;
 
 	/*
 	 * Have index-only scans return the same base IndexTuple for every TID
@@ -2092,6 +2172,14 @@ _bt_returnitem(IndexScanDesc scan, BTScanOpaque so)
 
 	/* Return next item, per amgettuple contract */
 	scan->xs_heaptid = currItem->heapTid;
+
+	if (scan->xs_want_itup)
+	{
+		scan->xs_visrecheck = currItem->visrecheck;
+		Assert(currItem->visrecheck != TMVC_Unchecked ||
+			   BufferIsValid(so->currPos.buf));
+	}
+
 	if (so->currTuples)
 		scan->xs_itup = (IndexTuple) (so->currTuples + currItem->tupleOffset);
 }
@@ -2250,7 +2338,7 @@ _bt_readfirstpage(IndexScanDesc scan, OffsetNumber offnum, ScanDirection dir)
 		 * so->currPos.buf in preparation for btgettuple returning tuples.
 		 */
 		Assert(BTScanPosIsPinned(so->currPos));
-		_bt_drop_lock_and_maybe_pin(scan, &so->currPos);
+		_bt_drop_lock_and_maybe_pin(scan, &so->currPos, &so->vmbuf);
 		return true;
 	}
 
@@ -2407,7 +2495,7 @@ _bt_readnextpage(IndexScanDesc scan, BlockNumber blkno,
 	 */
 	Assert(so->currPos.currPage == blkno);
 	Assert(BTScanPosIsPinned(so->currPos));
-	_bt_drop_lock_and_maybe_pin(scan, &so->currPos);
+	_bt_drop_lock_and_maybe_pin(scan, &so->currPos, &so->vmbuf);
 
 	return true;
 }

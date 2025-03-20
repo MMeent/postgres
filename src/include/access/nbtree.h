@@ -957,6 +957,7 @@ typedef struct BTScanPosItem	/* what we remember about each match */
 	ItemPointerData heapTid;	/* TID of referenced heap item */
 	OffsetNumber indexOffset;	/* index item's location within page */
 	LocationIndex tupleOffset;	/* IndexTuple's offset in workspace, if any */
+	uint8		visrecheck;		/* visibility recheck status, if any */
 } BTScanPosItem;
 
 typedef struct BTScanPosData
@@ -1070,6 +1071,9 @@ typedef struct BTScanOpaqueData
 	/* info about killed items if any (killedItems is NULL if never used) */
 	int		   *killedItems;	/* currPos.items indexes of killed items */
 	int			numKilled;		/* number of currently stored items */
+
+	/* buffer used for index-only scan visibility checks */
+	Buffer		vmbuf;
 
 	/*
 	 * If we are doing an index-only scan, these are the tuple storage
