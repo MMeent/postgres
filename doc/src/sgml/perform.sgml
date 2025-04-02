@@ -1169,6 +1169,198 @@ EXPLAIN ANALYZE SELECT * FROM tenk1 WHERE unique1 &lt; 100 AND unique2 &gt; 9000
    </para>
   </sect2>
 
+  <sect2 id="using-explain-nodetypes">
+   <title>Plan node types</title>
+   <para>
+    The planner can output many types of nodes. What follows is an abridged
+    listing of various types of plan nodes and an explanation of how they work.
+   </para>
+   
+   <table id="using-explain-nodetypes-table">
+    <title>Node types</title>
+    <tgroup cols="1">
+     <thead>
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        Plan node
+       </para>
+       <para>
+        Description
+       </para></entry>
+      </row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Seq Scan</literal>, <literal>Parallel Seq Scan</literal>
+       </para>
+       <para>
+        Scan all pages of the table for matching tuples.  Parallel scans spread
+        the work across multiple workers.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-seqscan" />. 
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Bitmap Heap Scan</literal>
+       </para>
+       <para>
+        Scan the table for the rows indicated by the bitmap.  Due to the
+        ordered nature of bitmaps, this won't have the random access pattern
+        that an Index Scan may have.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-bitmapscan" />.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Foreign Scan</literal>
+       </para>
+       <para>
+        Scans a <glossterm linkend="glossary-foreign-table">foreign table</glossterm>
+        (or, tables, when multiple tables could be joined on the foreign server)
+        for matching rows.
+       </para>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Index Scan</literal>, <literal>Parallel Index Scan</literal>
+       </para>
+       <para>
+        Scan an index for matching rows, looking up matching entries from the
+        index in the table as these matching rows are found.  Parallel scans
+        spread the work across multiple workers. 
+       </para>
+       <para>
+        Note that <literal>Index Filter</literal> clauses are used to match rows
+        inside the index and require that the index supports the operators in
+        the filter, while <literal>Filter</literal> clauses are applied only to
+        the rows returned from the table lookup and can contain any expression.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-indexscan" /> and
+        <xref linkend="indexes" />.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Index Only Scan</literal>, <literal>Parallel Index Only Scan</literal>
+       </para>
+       <para>
+        Scan an index for matching rows, and look only at the table to see if
+        the rows are visible to the user's query.  Parallel scans spread the
+        work across multiple workers.
+       </para>
+       <para>
+        Note that <literal>Index Filter</literal> clauses are used to match rows
+        inside the index and require that the index supports the operators in
+        the filter, while <literal>Filter</literal> clauses can contain any
+        expression but are executed outside the index.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-indexscan" />,
+        <xref linkend="guc-enable-indexonlyscan" /> and
+        <xref linkend="indexes" />.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Bitmap Index Scan</literal>
+       </para>
+       <para>
+        Scan an index for matching rows, and store those row IDs in a bitmap.
+        Rather than singular rows, this node has a bitmap as output, and
+        doesn't directly access the underlying table.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-bitmapscan" /> and
+        <xref linkend="indexes" />.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Bitmap And</literal>
+       </para>
+       <para>
+        Combine the output of multiple plan nodes that produced a bitmap, and
+        output the intersection of those.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-bitmapscan" />.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Bitmap Or</literal>
+       </para>
+       <para>
+        Combine the output of multiple plan nodes that produced a bitmap, and
+        output the union of those.
+       </para>
+       <para>
+        See also <xref linkend="guc-enable-bitmapscan" />.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Sort</literal>
+       </para>
+       <para>
+        Collects the output of the nodes below, and sorts it in the specified
+        order.
+       </para>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Incremental Sort</literal>
+       </para>
+       <para>
+        Outputs data sorted by multiple columns, based on an input of sorted
+        data which was sorted by only a prefix of those columns.  This has
+        lower temporary storage requirements than a <literal>Sort</literal>
+        node because it only needs to sort parts of the full output at any
+        time, rather than <literal>Sort</literal>'s full dataset.
+       </para>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Gather</literal>
+       </para>
+       <para>
+        This node launches workers to execute parts of a parallel subplan, and
+        gathers their output, with no particular order guarantees.
+       </para>
+      </row>
+
+      <row>
+       <entry role="nodetype_table_entry"><para role="nodetype_name">
+        <literal>Gather Merge</literal>
+       </para>
+       <para>
+        As with Gather, the node launches workers to execute parts of a
+        parallel subplan and gathers their output, but ensures the output of
+        the plan node is sorted.
+       </para>
+      </row>
+
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
  </sect1>
 
  <sect1 id="planner-stats">
