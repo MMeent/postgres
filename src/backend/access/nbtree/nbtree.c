@@ -361,6 +361,8 @@ btbeginscan(Relation rel, int nkeys, int norderbys)
 	so->numKilled = 0;
 
 	so->vmbuf = InvalidBuffer;
+	so->vischeckcap = 0;
+	so->vischecksbuf = NULL;
 
 	/*
 	 * We don't know yet whether the scan will be index-only, so we do not
@@ -455,6 +457,10 @@ btendscan(IndexScanDesc scan)
 
 	if (BufferIsValid(so->vmbuf))
 		ReleaseBuffer(so->vmbuf);
+	if (so->vischecksbuf)
+		pfree(so->vischecksbuf);
+	so->vischecksbuf = NULL;
+	so->vischeckcap = 0;
 
 	/* No need to invalidate positions, the RAM is about to be freed. */
 

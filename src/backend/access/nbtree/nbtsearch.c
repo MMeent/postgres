@@ -25,7 +25,7 @@
 #include "utils/rel.h"
 
 
-static void _bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, Buffer *vmbuf);
+static void _bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, BTScanOpaque so);
 static Buffer _bt_moveright(Relation rel, Relation heaprel, BTScanInsert key,
 							Buffer buf, bool forupdate, BTStack stack,
 							int access);
@@ -54,6 +54,8 @@ static Buffer _bt_lock_and_validate_left(Relation rel, BlockNumber *blkno,
 static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir);
 
 
+#define INTERNALIZE_VISIBILITY_CHECKS true
+
 /*
  *	_bt_drop_lock_and_maybe_pin()
  *
@@ -64,7 +66,7 @@ static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir);
  * See nbtree/README section on making concurrent TID recycling safe.
  */
 static void
-_bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, Buffer *vmbuf)
+_bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, BTScanOpaque so)
 {
 	_bt_unlockbuf(scan->indexRelation, sp->buf);
 
@@ -73,46 +75,69 @@ _bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, Buffer *vmbuf)
 	 * drop the pin on this page before we have returned all tuples from this
 	 * IOS to the executor.
 	 */
-	if (scan->xs_want_itup)
+	if (scan->xs_want_itup && INTERNALIZE_VISIBILITY_CHECKS)
 	{
-		TM_IndexVisibilityCheckOp visCheck;
-		int		offset = sp->firstItem;
+		int		initOffset = sp->firstItem;
+		int		ntids = 1 + sp->lastItem - initOffset;
 
-		visCheck.nchecktids = 1 + sp->lastItem - offset;
-		visCheck.checktids = palloc_array(TM_VisCheck,
-										  visCheck.nchecktids);
-		visCheck.vmbuf = vmbuf;
-
-		for (int i = 0; i < visCheck.nchecktids; i++)
+		if (ntids > 0)
 		{
-			int		itemidx = offset + i;
+			TM_IndexVisibilityCheckOp visCheck;
+			Relation	heaprel = scan->heapRelation;
+			TM_VisCheck *check;
+			BTScanPosItem *item;
 
-			Assert(sp->items[itemidx].visrecheck == TMVC_Unchecked);
-			Assert(ItemPointerIsValid(&sp->items[itemidx].heapTid));
+			visCheck.nchecktids = ntids;
 
-			visCheck.checktids[i].tid = sp->items[itemidx].heapTid;
-			visCheck.checktids[i].idxoffnum = itemidx;
-			visCheck.checktids[i].vischeckresult = TMVC_Unchecked;
+			if (so->vischeckcap == 0)
+			{
+				so->vischecksbuf = palloc_array(TM_VisCheck, ntids);
+				so->vischeckcap = ntids;
+			}
+			else if (so->vischeckcap < visCheck.nchecktids)
+			{
+				so->vischecksbuf = repalloc_array(so->vischecksbuf,
+												  TM_VisCheck, ntids);
+				so->vischeckcap = ntids;
+			}
+
+			visCheck.checktids = so->vischecksbuf;
+			visCheck.vmbuf = &so->vmbuf;
+
+			check = so->vischecksbuf;
+			item = &so->currPos.items[initOffset];
+
+			for (int i = 0; i < visCheck.nchecktids; i++)
+			{
+				Assert(item->visrecheck == TMVC_Unchecked);
+				Assert(ItemPointerIsValid(&item->heapTid));
+
+				check->tid = item->heapTid;
+				check->idxoffnum = initOffset + i;
+				check->vischeckresult = TMVC_Unchecked;
+				item++;
+				check++;
+			}
+
+			table_index_vischeck_tuples(heaprel, &visCheck);
+			check = so->vischecksbuf;
+//			item = &so->currPos.items[initOffset];
+
+			for (int i = 0; i < visCheck.nchecktids; i++)
+			{
+				item = &so->currPos.items[check->idxoffnum];
+				/* We must have a valid visibility check result */
+//				Assert(check->idxoffnum == initOffset + i);
+				Assert(check->vischeckresult != TMVC_Unchecked);
+				/* The offset number should still indicate the right item */
+				Assert(ItemPointerEquals(&check->tid, &item->heapTid));
+
+				/* Store the visibility check result */
+				item->visrecheck = check->vischeckresult;
+				check++;
+//				item++;
+			}
 		}
-
-		table_index_vischeck_tuples(scan->heapRelation, &visCheck);
-
-		for (int i = 0; i < visCheck.nchecktids; i++)
-		{
-			TM_VisCheck *check = &visCheck.checktids[i];
-			BTScanPosItem *item = &sp->items[check->idxoffnum];
-
-			/* We must have a valid visibility check result */
-			Assert(check->vischeckresult != TMVC_Unchecked);
-			/* The offset number should still indicate the right item */
-			Assert(ItemPointerEquals(&check->tid, &item->heapTid));
-
-			/* Store the visibility check result */
-			item->visrecheck = check->vischeckresult;
-		}
-
-		/* release temporary resources */
-		pfree(visCheck.checktids);
 	}
 
 	/*
@@ -145,7 +170,8 @@ _bt_drop_lock_and_maybe_pin(IndexScanDesc scan, BTScanPos sp, Buffer *vmbuf)
 	 * done just above.
 	 */
 	if (IsMVCCSnapshot(scan->xs_snapshot) &&
-		RelationNeedsWAL(scan->indexRelation))
+		RelationNeedsWAL(scan->indexRelation) &&
+		(!scan->xs_want_itup || INTERNALIZE_VISIBILITY_CHECKS))
 	{
 		ReleaseBuffer(sp->buf);
 		sp->buf = InvalidBuffer;
@@ -2338,7 +2364,7 @@ _bt_readfirstpage(IndexScanDesc scan, OffsetNumber offnum, ScanDirection dir)
 		 * so->currPos.buf in preparation for btgettuple returning tuples.
 		 */
 		Assert(BTScanPosIsPinned(so->currPos));
-		_bt_drop_lock_and_maybe_pin(scan, &so->currPos, &so->vmbuf);
+		_bt_drop_lock_and_maybe_pin(scan, &so->currPos, so);
 		return true;
 	}
 
@@ -2495,7 +2521,7 @@ _bt_readnextpage(IndexScanDesc scan, BlockNumber blkno,
 	 */
 	Assert(so->currPos.currPage == blkno);
 	Assert(BTScanPosIsPinned(so->currPos));
-	_bt_drop_lock_and_maybe_pin(scan, &so->currPos, &so->vmbuf);
+	_bt_drop_lock_and_maybe_pin(scan, &so->currPos, so);
 
 	return true;
 }

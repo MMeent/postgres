@@ -102,10 +102,35 @@ static bool ConditionalMultiXactIdWait(MultiXactId multi, MultiXactStatus status
 									   bool logLockFailure);
 static void index_delete_sort(TM_IndexDeleteOp *delstate);
 static int	bottomup_sort_and_shrink(TM_IndexDeleteOp *delstate);
-static int	heap_cmp_index_vischeck(const void *a, const void *b);
 static XLogRecPtr log_heap_new_cid(Relation relation, HeapTuple tup);
 static HeapTuple ExtractReplicaIdentity(Relation relation, HeapTuple tp, bool key_required,
 										bool *copy);
+
+
+#define ST_SORT heap_index_sort_vischeck_vm
+#define ST_ELEMENT_TYPE TM_VisCheck
+#define ST_DECLARE
+#define ST_DEFINE
+#define ST_SCOPE static inline
+#define ST_COMPARE(a, b) ( \
+	(ItemPointerGetBlockNumberNoCheck(&a->tid) < ItemPointerGetBlockNumberNoCheck(&b->tid)) \
+	? -1 \
+	: ( \
+		(ItemPointerGetBlockNumberNoCheck(&a->tid) > ItemPointerGetBlockNumberNoCheck(&b->tid)) \
+		? 1 \
+		: 0 \
+	) \
+)
+#include "lib/sort_template.h"
+
+#define ST_SORT heap_index_sort_vischeck_idx
+#define ST_ELEMENT_TYPE TM_VisCheck
+#define ST_DECLARE
+#define ST_DEFINE
+#define ST_SCOPE static inline
+#define ST_COMPARE(a, b) (((int) a->idxoffnum) - ((int) b->idxoffnum))
+#include "lib/sort_template.h"
+
 
 
 /*
@@ -8754,35 +8779,62 @@ bottomup_sort_and_shrink(TM_IndexDeleteOp *delstate)
  * It's possible for this to generate a fair amount of I/O, since we may be
  * checking hundreds of tuples from a single index block, but that is
  * preferred over holding thousands of pins.
+ *
+ * We use heuristics to try to reduce various overheads:
+ *
+ * - VM checks are fairly cheap by themselves, unless and until they 
  */
 void
 heap_index_vischeck_tuples(Relation rel, TM_IndexVisibilityCheckOp *checkop)
 {
 	BlockNumber		prevBlk = InvalidBlockNumber;
 	TMVC_Result		lastResult = TMVC_Unchecked;
-	Buffer		   *vmbuf = checkop->vmbuf;
-	TM_VisCheck	   *checkTids = checkop->checktids;
+	Buffer			vmbuf = *checkop->vmbuf;
+	Buffer			storvmbuf = vmbuf;
+	TM_VisCheck	   *checktids = checkop->checktids;
+	int				nchecktids = checkop->nchecktids;
+
+	while (vmbuf == storvmbuf && nchecktids > 0)
+	{
+		BlockNumber blkno = ItemPointerGetBlockNumberNoCheck(&checktids->tid);
+
+		if (blkno != prevBlk)
+		{
+			if (VM_ALL_VISIBLE(rel, blkno, &vmbuf))
+				lastResult = TMVC_Visible;
+			else
+				lastResult = TMVC_MaybeVisible;
+
+			prevBlk = blkno;
+		}
+		checktids->vischeckresult = lastResult;
+
+		nchecktids--;
+		checktids++;
+	}
+
+	if (storvmbuf != vmbuf)
+		*checkop->vmbuf = vmbuf;
+
+	if (nchecktids == 0)
+		return;
 
 	/*
 	 * Order the TIDs to heap order, so that we will only need to visit every
 	 * VM page at most once.
 	 */
-	if (checkop->nchecktids > 1)
-		qsort(checkTids, checkop->nchecktids, sizeof(TM_VisCheck),
-			  heap_cmp_index_vischeck);
+	heap_index_sort_vischeck_vm(checktids, nchecktids);
 
-	for (int i = 0; i < checkop->nchecktids; i++)
+	for (int i = 0; i < nchecktids; i++)
 	{
-		TM_VisCheck *check = &checkop->checktids[i];
-		ItemPointer	tid = &check->tid;
-		BlockNumber blkno = ItemPointerGetBlockNumber(tid);
+		BlockNumber blkno = ItemPointerGetBlockNumberNoCheck(&checktids->tid);
 
 		/* Visibility should be checked just once per tuple. */
 		Assert(check->vischeckresult == TMVC_Unchecked);
 
 		if (blkno != prevBlk)
 		{
-			if (VM_ALL_VISIBLE(rel, blkno, vmbuf))
+			if (VM_ALL_VISIBLE(rel, blkno, &vmbuf))
 				lastResult = TMVC_Visible;
 			else
 				lastResult = TMVC_MaybeVisible;
@@ -8790,20 +8842,14 @@ heap_index_vischeck_tuples(Relation rel, TM_IndexVisibilityCheckOp *checkop)
 			prevBlk = blkno;
 		}
 
-		check->vischeckresult = lastResult;
+		checktids->vischeckresult = lastResult;
+		checktids++;
 	}
-}
 
-/*
- * Compare TM_VisChecks for an efficient ordering.
- */
-static int
-heap_cmp_index_vischeck(const void *a, const void *b)
-{
-	const TM_VisCheck *visa = (const TM_VisCheck *) a;
-	const TM_VisCheck *visb = (const TM_VisCheck *) b;
-	return ItemPointerCompare(unconstify(ItemPointerData *, &visa->tid),
-							  unconstify(ItemPointerData *, &visb->tid));
+	*checkop->vmbuf = vmbuf;
+
+	checktids -= nchecktids;
+	heap_index_sort_vischeck_idx(checktids, nchecktids);
 }
 
 /*

@@ -1072,8 +1072,10 @@ typedef struct BTScanOpaqueData
 	int		   *killedItems;	/* currPos.items indexes of killed items */
 	int			numKilled;		/* number of currently stored items */
 
-	/* buffer used for index-only scan visibility checks */
-	Buffer		vmbuf;
+	/* used for index-only scan visibility prechecks */
+	Buffer		vmbuf;			/* vm buffer */
+	int			vischeckcap;	/* capacity of vischeckbuf */
+	TM_VisCheck *vischecksbuf;	/* single allocation to save on alloc overhead */
 
 	/*
 	 * If we are doing an index-only scan, these are the tuple storage
