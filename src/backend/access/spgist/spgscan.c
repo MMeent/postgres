@@ -847,28 +847,26 @@ spgPopulateUnorderedVischecks(IndexScanDesc scan, SpGistScanOpaqueData *so)
 	if (so->nPtrs == 0)
 		return;
 
-	op.nchecktids = so->nPtrs;
+	op.checkntids = so->nPtrs;
 	op.checktids = palloc_array(TM_VisCheck, so->nPtrs);
 	op.vmbuf = &so->vmbuf;
 
-	for (int i = 0; i < op.nchecktids; i++)
+	for (int i = 0; i < op.checkntids; i++)
 	{
-		op.checktids[i].idxoffnum = i;
-		op.checktids[i].vischeckresult = TMVC_Unchecked;
-		op.checktids[i].tid = so->heapPtrs[i];
+		Assert(ItemPointerIsValid(&so->heapPtrs[i]));
 
-		Assert(ItemPointerIsValid(&op.checktids[i].tid));
+		PopulateTMVischeck(&op.checktids[i], &so->heapPtrs[i], i);
 	}
 
 	table_index_vischeck_tuples(scan->heapRelation, &op);
 
-	for (int i = 0; i < op.nchecktids; i++)
+	for (int i = 0; i < op.checkntids; i++)
 	{
 		TM_VisCheck *check = &op.checktids[i];
 
-		Assert(ItemPointerEquals(&so->heapPtrs[check->idxoffnum],
-								 &check->tid));
-		Assert(check->idxoffnum < op.nchecktids);
+		Assert(check->tidblkno == ItemPointerGetBlockNumberNoCheck(&so->heapPtrs[check->idxoffnum]));
+		Assert(check->tidoffset == ItemPointerGetOffsetNumberNoCheck(&so->heapPtrs[check->idxoffnum]));
+		Assert(check->idxoffnum < op.checkntids);
 
 		so->visrecheck[check->idxoffnum] = check->vischeckresult;
 	}
@@ -889,29 +887,26 @@ spgPopulateOrderedVisChecks(IndexScanDesc scan, SpGistScanOpaqueData *so)
 	Assert(scan->numberOfOrderBys > 0);
 	Assert(PointerIsValid(so->items));
 
-	op.nchecktids = so->nReorderThisPage;
+	op.checkntids = so->nReorderThisPage;
 	op.checktids = palloc_array(TM_VisCheck, so->nReorderThisPage);
 	op.vmbuf = &so->vmbuf;
 
-	for (int i = 0; i < op.nchecktids; i++)
+	for (int i = 0; i < op.checkntids; i++)
 	{
-		op.checktids[i].idxoffnum = i;
-		op.checktids[i].vischeckresult = TMVC_Unchecked;
-		op.checktids[i].tid = so->items[i]->heapPtr;
-
+		PopulateTMVischeck(&op.checktids[i], &so->items[i]->heapPtr, i);
 		Assert(ItemPointerIsValid(&so->items[i]->heapPtr));
 		Assert(so->items[i]->isLeaf);
 	}
 
 	table_index_vischeck_tuples(scan->heapRelation, &op);
 
-	for (int i = 0; i < op.nchecktids; i++)
+	for (int i = 0; i < op.checkntids; i++)
 	{
 		TM_VisCheck *check = &op.checktids[i];
 
-		Assert(check->idxoffnum < op.nchecktids);
-		Assert(ItemPointerEquals(&check->tid,
-								 &so->items[check->idxoffnum]->heapPtr));
+		Assert(check->idxoffnum < op.checkntids);
+		Assert(check->tidblkno == ItemPointerGetBlockNumberNoCheck(&so->items[check->idxoffnum]->heapPtr));
+		Assert(check->tidoffset == ItemPointerGetOffsetNumberNoCheck(&so->items[check->idxoffnum]->heapPtr));
 
 		so->items[check->idxoffnum]->visrecheck = check->vischeckresult;
 	}

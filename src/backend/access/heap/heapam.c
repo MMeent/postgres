@@ -113,14 +113,11 @@ static HeapTuple ExtractReplicaIdentity(Relation relation, HeapTuple tp, bool ke
 #define ST_DEFINE
 #define ST_SCOPE static inline
 #define ST_COMPARE(a, b) ( \
-	(ItemPointerGetBlockNumberNoCheck(&a->tid) < ItemPointerGetBlockNumberNoCheck(&b->tid)) \
-	? -1 \
-	: ( \
-		(ItemPointerGetBlockNumberNoCheck(&a->tid) > ItemPointerGetBlockNumberNoCheck(&b->tid)) \
-		? 1 \
-		: 0 \
+	a->tidblkno < b->tidblkno ? -1 : ( \
+		a->tidblkno > b->tidblkno ? 1 : 0 \
 	) \
 )
+
 #include "lib/sort_template.h"
 
 #define ST_SORT heap_index_sort_vischeck_idx
@@ -8768,6 +8765,14 @@ bottomup_sort_and_shrink(TM_IndexDeleteOp *delstate)
 	return nblocksfavorable;
 }
 
+static inline int
+heap_index_vischeck_process_block(Relation rel, Buffer *vmbuf,
+								  TM_VisCheck *checks, int nchecks);
+
+static void
+heap_index_vischeck_process_all(Relation rel, Buffer *vmbuf,
+								TM_VisCheck *checks, int nchecks);
+
 /*
  * heapam implementation of tableam's index_vischeck_tuples interface.
  *
@@ -8787,69 +8792,136 @@ bottomup_sort_and_shrink(TM_IndexDeleteOp *delstate)
 void
 heap_index_vischeck_tuples(Relation rel, TM_IndexVisibilityCheckOp *checkop)
 {
-	BlockNumber		prevBlk = InvalidBlockNumber;
-	TMVC_Result		lastResult = TMVC_Unchecked;
 	Buffer			vmbuf = *checkop->vmbuf;
 	Buffer			storvmbuf = vmbuf;
-	TM_VisCheck	   *checktids = checkop->checktids;
-	int				nchecktids = checkop->nchecktids;
+	TM_VisCheck	   *checks = checkop->checktids;
+	int				checkntids = checkop->checkntids;
+	int				upcomingvmbufchanges = 0;
 
-	while (vmbuf == storvmbuf && nchecktids > 0)
+vischeck_bufchurn_detection:
+	while (vmbuf == storvmbuf && checkntids > 0)
 	{
-		BlockNumber blkno = ItemPointerGetBlockNumberNoCheck(&checktids->tid);
+		int			processed;
 
-		if (blkno != prevBlk)
-		{
-			if (VM_ALL_VISIBLE(rel, blkno, &vmbuf))
-				lastResult = TMVC_Visible;
-			else
-				lastResult = TMVC_MaybeVisible;
+		processed = heap_index_vischeck_process_block(rel, &vmbuf, checks,
+													  checkntids);
 
-			prevBlk = blkno;
-		}
-		checktids->vischeckresult = lastResult;
-
-		nchecktids--;
-		checktids++;
+		checkntids -= processed;
+		checks += processed;
 	}
 
-	if (storvmbuf != vmbuf)
-		*checkop->vmbuf = vmbuf;
+	Assert(BufferIsValid(vmbuf));
 
-	if (nchecktids == 0)
+	/*
+	 * The first index scan will have to pin the VM buffer, and that first
+	 * change in the vm buffer shouldn't put us into the expensive VM page &
+	 * sort path.
+	 */
+	if (!BufferIsValid(storvmbuf) && checkntids > 0)
+	{
+		Assert(BufferIsValid(vmbuf));
+		storvmbuf = vmbuf;
+		goto vischeck_bufchurn_detection;
+	}
+
+	*checkop->vmbuf = vmbuf;
+
+	if (checkntids == 0)
+	{
 		return;
+	}
+
+	upcomingvmbufchanges = 0;
+
+	for (int i = 1; i < checkntids; i++)
+	{
+		/*
+		 * Instead of storing the previous iteration's result, we only match
+		 * the block numbers
+		 */
+		BlockNumber lastblkno = checks[i - 1].tidblkno;
+		BlockNumber newblkno = checks[i].tidblkno;
+		/*
+		 * divide-by-constant can be faster than BufferGetBlockNumber()
+		 */
+		BlockNumber lastvmblkno = HEAPBLK_TO_VMBLOCK(lastblkno);
+		BlockNumber newvmblkno = HEAPBLK_TO_VMBLOCK(newblkno);
+
+		if (lastvmblkno != newvmblkno)
+			upcomingvmbufchanges++;
+	}
+
+	if (upcomingvmbufchanges <= pg_ceil_log2_32(checkntids))
+	{
+		/*
+		 * No big amount of VM buf changes, so do all visibility checks
+		 * without sorting.
+		 */
+		heap_index_vischeck_process_all(rel, checkop->vmbuf, checks,
+										checkntids);
+
+		return;
+	}
 
 	/*
 	 * Order the TIDs to heap order, so that we will only need to visit every
 	 * VM page at most once.
 	 */
-	heap_index_sort_vischeck_vm(checktids, nchecktids);
+	heap_index_sort_vischeck_vm(checks, checkntids);
 
-	for (int i = 0; i < nchecktids; i++)
+	/* do all visibility checks */
+	heap_index_vischeck_process_all(rel, checkop->vmbuf, checks, checkntids);
+
+	/* put the checks back in index order */
+	heap_index_sort_vischeck_idx(checks, checkntids);
+}
+
+
+static inline int
+heap_index_vischeck_process_block(Relation rel, Buffer *vmbuf,
+								  TM_VisCheck *checks, int nchecks)
+{
+	BlockNumber	blkno;
+	BlockNumber	prevblkno = blkno = checks->tidblkno;
+	TMVC_Result	result;
+	int			processed = 0;
+
+	if (VM_ALL_VISIBLE(rel, blkno, vmbuf))
+		result = TMVC_Visible;
+	else
+		result = TMVC_MaybeVisible;
+
+	do
 	{
-		BlockNumber blkno = ItemPointerGetBlockNumberNoCheck(&checktids->tid);
+		checks->vischeckresult = result;
 
-		/* Visibility should be checked just once per tuple. */
-		Assert(check->vischeckresult == TMVC_Unchecked);
+		nchecks--;
+		processed++;
+		checks++;
 
-		if (blkno != prevBlk)
-		{
-			if (VM_ALL_VISIBLE(rel, blkno, &vmbuf))
-				lastResult = TMVC_Visible;
-			else
-				lastResult = TMVC_MaybeVisible;
+		if (nchecks <= 0)
+			return processed;
 
-			prevBlk = blkno;
-		}
+		blkno = checks->tidblkno;
+	} while (blkno == prevblkno);
 
-		checktids->vischeckresult = lastResult;
-		checktids++;
+	return processed;
+}
+
+static void
+heap_index_vischeck_process_all(Relation rel, Buffer *vmbuf,
+								TM_VisCheck *checks, int nchecks)
+{
+	while (nchecks > 0)
+	{
+		int			processed;
+
+		processed = heap_index_vischeck_process_block(rel, vmbuf, checks,
+													  nchecks);
+
+		nchecks -= processed;
+		checks += processed;
 	}
-
-	*checkop->vmbuf = vmbuf;
-
-	checktids -= nchecktids;
-	heap_index_sort_vischeck_idx(checktids, nchecktids);
 }
 
 /*

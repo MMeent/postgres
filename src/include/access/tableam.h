@@ -273,20 +273,34 @@ typedef struct TM_IndexDeleteOp
 typedef enum TMVC_Result
 {
 	TMVC_Unchecked,
-	TMVC_MaybeVisible,
 	TMVC_Visible,
+	TMVC_MaybeVisible,
 } TMVC_Result;
 
 typedef struct TM_VisCheck
 {
-	ItemPointerData	tid;			/* table TID from index tuple */
-	OffsetNumber	idxoffnum;		/* identifier for the TID in this call */
-	TMVC_Result		vischeckresult;	/* output of the visibilitycheck */
+	/* table TID from index tuple */
+	BlockNumber		tidblkno;
+	uint16			tidoffset;
+	/* identifier for the TID in this visibility check operation context */
+	OffsetNumber	idxoffnum;
+	/* the result of the visibility check operation */
+	TMVC_Result		vischeckresult;
 } TM_VisCheck;
+
+static inline void
+PopulateTMVischeck(TM_VisCheck *check, ItemPointer tid, OffsetNumber idxoff)
+{
+	Assert(ItemPointerIsValid(tid));
+	check->tidblkno = ItemPointerGetBlockNumberNoCheck(tid);
+	check->tidoffset = ItemPointerGetOffsetNumberNoCheck(tid);
+	check->idxoffnum = idxoff;
+	check->vischeckresult = TMVC_Unchecked;
+}
 
 typedef struct TM_IndexVisibilityCheckOp
 {
-	int			nchecktids;			/* number of TIDs to check */
+	int			checkntids;			/* number of TIDs to check */
 	Buffer	   *vmbuf;				/* pointer to VM buffer to reuse across calls */
 	TM_VisCheck *checktids;			/* the checks to execute */
 } TM_IndexVisibilityCheckOp;
@@ -1394,11 +1408,10 @@ table_index_vischeck_tuple(Relation rel, Buffer *vmbuffer, ItemPointer tid)
 	TM_IndexVisibilityCheckOp checkOp;
 	TM_VisCheck		op;
 
-	op.idxoffnum = 0;
-	op.tid = *tid;
-	op.vischeckresult = TMVC_Unchecked;
+	PopulateTMVischeck(&op, tid, 0);
+
 	checkOp.checktids = &op;
-	checkOp.nchecktids = 1;
+	checkOp.checkntids = 1;
 	checkOp.vmbuf = vmbuffer;
 
 	rel->rd_tableam->index_vischeck_tuples(rel, &checkOp);

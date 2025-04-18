@@ -12,6 +12,7 @@
  */
 #ifndef VISIBILITYMAPDEFS_H
 #define VISIBILITYMAPDEFS_H
+#include "storage/bufpage.h"
 
 /* Number of bits for one heap page */
 #define BITS_PER_HEAPBLOCK 2
@@ -30,5 +31,23 @@
  */
 #define VISIBILITYMAP_XLOG_CATALOG_REL	0x04
 #define VISIBILITYMAP_XLOG_VALID_BITS	(VISIBILITYMAP_VALID_BITS | VISIBILITYMAP_XLOG_CATALOG_REL)
+
+/*
+ * Size of the bitmap on each visibility map page, in bytes. There's no
+ * extra headers, so the whole page minus the standard page header is
+ * used for the bitmap.
+ */
+#define VM_MAPSIZE (BLCKSZ - MAXALIGN(SizeOfPageHeaderData))
+
+/* Number of heap blocks we can represent in one byte */
+#define VM_HEAPBLOCKS_PER_BYTE (BITS_PER_BYTE / BITS_PER_HEAPBLOCK)
+
+/* Number of heap blocks we can represent in one visibility map page. */
+#define VM_HEAPBLOCKS_PER_PAGE (VM_MAPSIZE * VM_HEAPBLOCKS_PER_BYTE)
+
+/* Mapping from heap block number to the right bit in the visibility map */
+#define HEAPBLK_TO_VMBLOCK(x) ((x) / VM_HEAPBLOCKS_PER_PAGE)
+#define HEAPBLK_TO_VMBYTE(x) (((x) % VM_HEAPBLOCKS_PER_PAGE) / VM_HEAPBLOCKS_PER_BYTE)
+#define HEAPBLK_TO_VM_OFFSET(x) (((x) % VM_HEAPBLOCKS_PER_BYTE) * BITS_PER_HEAPBLOCK)
 
 #endif							/* VISIBILITYMAPDEFS_H */

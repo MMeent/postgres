@@ -107,17 +107,6 @@
  */
 #define MAPSIZE (BLCKSZ - MAXALIGN(SizeOfPageHeaderData))
 
-/* Number of heap blocks we can represent in one byte */
-#define HEAPBLOCKS_PER_BYTE (BITS_PER_BYTE / BITS_PER_HEAPBLOCK)
-
-/* Number of heap blocks we can represent in one visibility map page. */
-#define HEAPBLOCKS_PER_PAGE (MAPSIZE * HEAPBLOCKS_PER_BYTE)
-
-/* Mapping from heap block number to the right bit in the visibility map */
-#define HEAPBLK_TO_MAPBLOCK(x) ((x) / HEAPBLOCKS_PER_PAGE)
-#define HEAPBLK_TO_MAPBYTE(x) (((x) % HEAPBLOCKS_PER_PAGE) / HEAPBLOCKS_PER_BYTE)
-#define HEAPBLK_TO_OFFSET(x) (((x) % HEAPBLOCKS_PER_BYTE) * BITS_PER_HEAPBLOCK)
-
 /* Masks for counting subsets of bits in the visibility map. */
 #define VISIBLE_MASK8	(0x55)	/* The lower bit of each bit pair */
 #define FROZEN_MASK8	(0xaa)	/* The upper bit of each bit pair */
@@ -137,9 +126,9 @@ static Buffer vm_extend(Relation rel, BlockNumber vm_nblocks);
 bool
 visibilitymap_clear(Relation rel, BlockNumber heapBlk, Buffer vmbuf, uint8 flags)
 {
-	BlockNumber mapBlock = HEAPBLK_TO_MAPBLOCK(heapBlk);
-	int			mapByte = HEAPBLK_TO_MAPBYTE(heapBlk);
-	int			mapOffset = HEAPBLK_TO_OFFSET(heapBlk);
+	BlockNumber mapBlock = HEAPBLK_TO_VMBLOCK(heapBlk);
+	int			mapByte = HEAPBLK_TO_VMBYTE(heapBlk);
+	int			mapOffset = HEAPBLK_TO_VM_OFFSET(heapBlk);
 	uint8		mask = flags << mapOffset;
 	char	   *map;
 	bool		cleared = false;
@@ -190,7 +179,7 @@ visibilitymap_clear(Relation rel, BlockNumber heapBlk, Buffer vmbuf, uint8 flags
 void
 visibilitymap_pin(Relation rel, BlockNumber heapBlk, Buffer *vmbuf)
 {
-	BlockNumber mapBlock = HEAPBLK_TO_MAPBLOCK(heapBlk);
+	BlockNumber mapBlock = HEAPBLK_TO_VMBLOCK(heapBlk);
 
 	/* Reuse the old pinned buffer if possible */
 	if (BufferIsValid(*vmbuf))
@@ -214,7 +203,7 @@ visibilitymap_pin(Relation rel, BlockNumber heapBlk, Buffer *vmbuf)
 bool
 visibilitymap_pin_ok(BlockNumber heapBlk, Buffer vmbuf)
 {
-	BlockNumber mapBlock = HEAPBLK_TO_MAPBLOCK(heapBlk);
+	BlockNumber mapBlock = HEAPBLK_TO_VMBLOCK(heapBlk);
 
 	return BufferIsValid(vmbuf) && BufferGetBlockNumber(vmbuf) == mapBlock;
 }
@@ -247,9 +236,9 @@ visibilitymap_set(Relation rel, BlockNumber heapBlk, Buffer heapBuf,
 				  XLogRecPtr recptr, Buffer vmBuf, TransactionId cutoff_xid,
 				  uint8 flags)
 {
-	BlockNumber mapBlock = HEAPBLK_TO_MAPBLOCK(heapBlk);
-	uint32		mapByte = HEAPBLK_TO_MAPBYTE(heapBlk);
-	uint8		mapOffset = HEAPBLK_TO_OFFSET(heapBlk);
+	BlockNumber mapBlock = HEAPBLK_TO_VMBLOCK(heapBlk);
+	uint32		mapByte = HEAPBLK_TO_VMBYTE(heapBlk);
+	uint8		mapOffset = HEAPBLK_TO_VM_OFFSET(heapBlk);
 	Page		page;
 	uint8	   *map;
 	uint8		status;
@@ -340,9 +329,9 @@ visibilitymap_set(Relation rel, BlockNumber heapBlk, Buffer heapBuf,
 uint8
 visibilitymap_get_status(Relation rel, BlockNumber heapBlk, Buffer *vmbuf)
 {
-	BlockNumber mapBlock = HEAPBLK_TO_MAPBLOCK(heapBlk);
-	uint32		mapByte = HEAPBLK_TO_MAPBYTE(heapBlk);
-	uint8		mapOffset = HEAPBLK_TO_OFFSET(heapBlk);
+	BlockNumber mapBlock = HEAPBLK_TO_VMBLOCK(heapBlk);
+	uint32		mapByte = HEAPBLK_TO_VMBYTE(heapBlk);
+	uint8		mapOffset = HEAPBLK_TO_VM_OFFSET(heapBlk);
 	char	   *map;
 	uint8		result;
 
@@ -445,9 +434,9 @@ visibilitymap_prepare_truncate(Relation rel, BlockNumber nheapblocks)
 	BlockNumber newnblocks;
 
 	/* last remaining block, byte, and bit */
-	BlockNumber truncBlock = HEAPBLK_TO_MAPBLOCK(nheapblocks);
-	uint32		truncByte = HEAPBLK_TO_MAPBYTE(nheapblocks);
-	uint8		truncOffset = HEAPBLK_TO_OFFSET(nheapblocks);
+	BlockNumber truncBlock = HEAPBLK_TO_VMBLOCK(nheapblocks);
+	uint32		truncByte = HEAPBLK_TO_VMBYTE(nheapblocks);
+	uint8		truncOffset = HEAPBLK_TO_VM_OFFSET(nheapblocks);
 
 #ifdef TRACE_VISIBILITYMAP
 	elog(DEBUG1, "vm_truncate %s %d", RelationGetRelationName(rel), nheapblocks);

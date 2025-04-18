@@ -552,53 +552,56 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 
 		if (scan->numberOfOrderBys > 0)
 		{
-			op.nchecktids = so->os.nsortData;
+			op.checkntids = so->os.nsortData;
 
-			if (op.nchecktids > 0)
+			if (op.checkntids > 0)
 			{
-				op.checktids = palloc(op.nchecktids * sizeof(TM_VisCheck));
+				op.checktids = palloc(op.checkntids * sizeof(TM_VisCheck));
 
-				for (int off = 0; off < op.nchecktids; off++)
+				for (int off = 0; off < op.checkntids; off++)
 				{
-					op.checktids[off].vischeckresult = TMVC_Unchecked;
-					op.checktids[off].tid = so->os.sortData[off]->heapPtr;
-					op.checktids[off].idxoffnum = off;
-					Assert(ItemPointerIsValid(&op.checktids[off].tid));
+					Assert(ItemPointerIsValid(&so->os.sortData[off]->heapPtr));
+
+					PopulateTMVischeck(&op.checktids[off],
+									   &so->os.sortData[off]->heapPtr,
+									   off);
 				}
 			}
 		}
 		else
 		{
-			op.nchecktids = so->nos.nPageData;
+			op.checkntids = so->nos.nPageData;
 
-			if (op.nchecktids > 0)
+			if (op.checkntids > 0)
 			{
-				op.checktids = palloc_array(TM_VisCheck, op.nchecktids);
+				op.checktids = palloc_array(TM_VisCheck, op.checkntids);
 
-				for (int off = 0; off < op.nchecktids; off++)
+				for (int off = 0; off < op.checkntids; off++)
 				{
-					op.checktids[off].vischeckresult = TMVC_Unchecked;
-					op.checktids[off].tid = so->nos.pageData[off].heapPtr;
-					op.checktids[off].idxoffnum = off;
-					Assert(ItemPointerIsValid(&op.checktids[off].tid));
+					Assert(ItemPointerIsValid(&so->nos.pageData[off].heapPtr));
+
+					PopulateTMVischeck(&op.checktids[off],
+									   &so->nos.pageData[off].heapPtr,
+									   off);
 				}
 			}
 		}
 
-		if (op.nchecktids > 0)
+		if (op.checkntids > 0)
 		{
 			table_index_vischeck_tuples(scan->heapRelation, &op);
 
 			if (scan->numberOfOrderBys > 0)
 			{
-				for (int off = 0; off < op.nchecktids; off++)
+				for (int off = 0; off < op.checkntids; off++)
 				{
 					TM_VisCheck *check = &op.checktids[off];
 					GISTSearchHeapItem *item = so->os.sortData[check->idxoffnum];
 
 					/* sanity checks */
-					Assert(check->idxoffnum < op.nchecktids);
-					Assert(ItemPointerEquals(&item->heapPtr, &check->tid));
+					Assert(check->idxoffnum < op.checkntids);
+					Assert(check->tidblkno == ItemPointerGetBlockNumberNoCheck(&item->heapPtr));
+					Assert(check->tidoffset == ItemPointerGetOffsetNumberNoCheck(&item->heapPtr));
 
 					item->visrecheck = check->vischeckresult;
 				}
@@ -607,13 +610,14 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 			}
 			else
 			{
-				for (int off = 0; off < op.nchecktids; off++)
+				for (int off = 0; off < op.checkntids; off++)
 				{
 					TM_VisCheck *check = &op.checktids[off];
 					GISTSearchHeapItem *item = &so->nos.pageData[check->idxoffnum];
 
-					Assert(check->idxoffnum < op.nchecktids);
-					Assert(ItemPointerEquals(&item->heapPtr, &check->tid));
+					Assert(check->idxoffnum < op.checkntids);
+					Assert(check->tidblkno == ItemPointerGetBlockNumberNoCheck(&item->heapPtr));
+					Assert(check->tidoffset == ItemPointerGetOffsetNumberNoCheck(&item->heapPtr));
 
 					item->visrecheck = check->vischeckresult;
 				}
