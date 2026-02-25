@@ -375,7 +375,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
 	 * larger than this.
 	 */
 	Assert(initBlockSize == MAXALIGN(initBlockSize) &&
-		   initBlockSize >= 1024);
+		   initBlockSize >= 512);
 	Assert(maxBlockSize == MAXALIGN(maxBlockSize) &&
 		   maxBlockSize >= initBlockSize &&
 		   AllocHugeSizeIsValid(maxBlockSize)); /* must be safe to double */

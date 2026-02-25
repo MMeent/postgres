@@ -1523,10 +1523,14 @@ RelationInitIndexAccessInfo(Relation relation)
 	 * Make the private context to hold index access info.  The reason we need
 	 * a context, and not just a couple of pallocs, is so that we won't leak
 	 * any subsidiary info attached to fmgr lookup records.
+	 *
+	 * The context shouldn't start out large, because many indexes only
+	 * allocate few bytes into this context: Only indcollation and indoption
+	 * are inserted into this context by catcache's systems.
 	 */
 	indexcxt = AllocSetContextCreate(CacheMemoryContext,
 									 "index info",
-									 ALLOCSET_SMALL_SIZES);
+									 ALLOCSET_TINY_SIZES);
 	relation->rd_indexcxt = indexcxt;
 	MemoryContextCopyAndSetIdentifier(indexcxt,
 									  RelationGetRelationName(relation));
@@ -6935,7 +6939,7 @@ load_relcache_init_index(Relation rel, FILE *fp)
 	 */
 	indexcxt = AllocSetContextCreate(CacheMemoryContext,
 									 "index info",
-									 ALLOCSET_SMALL_SIZES);
+									 ALLOCSET_TINY_SIZES);
 	rel->rd_indexcxt = indexcxt;
 	MemoryContextCopyAndSetIdentifier(indexcxt,
 									  RelationGetRelationName(rel));

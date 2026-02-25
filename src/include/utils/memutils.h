@@ -170,6 +170,12 @@ extern MemoryContext BumpContextCreate(MemoryContext parent,
 #define ALLOCSET_SMALL_SIZES \
 	ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE
 
+#define ALLOCSET_TINY_MINSIZE	  0
+#define ALLOCSET_TINY_INITSIZE	 (1024 / 2)
+#define ALLOCSET_TINY_MAXSIZE	 (1024 * 8)
+#define ALLOCSET_TINY_SIZES \
+	ALLOCSET_TINY_MINSIZE, ALLOCSET_TINY_INITSIZE, ALLOCSET_TINY_MAXSIZE
+
 /*
  * Recommended alloc parameters for contexts that should start out small,
  * but might sometimes grow big.
