@@ -2032,11 +2032,84 @@ get_fn_expr_variadic(FmgrInfo *flinfo)
  * we can use fn_expr to store opclass options as bytea constant.
  */
 void
-set_fn_opclass_options(FmgrInfo *flinfo, bytea *options)
+set_fn_opclass_options(FmgrInfo *flinfo, const bytea *options)
 {
+	Assert(flinfo->fn_expr == NULL);
 	flinfo->fn_expr = (Node *) makeConst(BYTEAOID, -1, InvalidOid, -1,
 										 PointerGetDatum(options),
 										 options == NULL, false);
+}
+
+/* used only in set/clear_fn_opclass_options_bulk */
+const static Const OPCOPTION_NULL_CONST = {
+	.xpr = { .type = T_Const },
+	.consttype = BYTEAOID,
+	.consttypmod = -1,
+	.constcollid = InvalidOid,
+	.constlen = -1,
+	.constvalue = (Datum) (uintptr_t) NULL,
+	.constisnull = true,
+	.constbyval = false,
+	.location = -1
+};
+
+/*
+ * Set options to FmgrInfos of opclass support functions.
+ *
+ * Opclass support functions are called outside of expressions.  Thanks to that
+ * we can use fn_expr to store opclass options as bytea constant.
+ */
+void
+set_fn_opclass_options_bulk(FmgrInfo *flinfo, const bytea *const *opcopts, int nsupport, int nkeycols)
+{
+	if (nsupport == 0)
+		return;
+	Assert(flinfo != NULL);
+	Assert(opcopts != NULL);
+
+	for (int attno = 0; attno < nkeycols; attno++)
+	{
+		Node *option;
+		const bytea *opcoption = opcopts[attno];
+
+		if (opcoption == NULL)
+			option = (Node *) &OPCOPTION_NULL_CONST;
+		else
+		{
+			option = (Node *) makeConst(BYTEAOID, -1, InvalidOid, -1,
+										PointerGetDatum(opcoption),
+										false, false);
+		}
+		Assert(option != NULL);
+
+		for (int support = 0; support < nsupport; support++)
+		{
+			Assert(flinfo->fn_expr == NULL);
+
+			flinfo->fn_expr = option;
+			flinfo++;
+		}
+	}
+}
+
+/*
+ * Set options to FmgrInfos of opclass support functions.
+ *
+ * Opclass support functions are called outside of expressions.  Thanks to that
+ * we can use fn_expr to store opclass options as bytea constant.
+ */
+void
+clear_fn_opclass_options_bulk(FmgrInfo *flinfo, int ninfos, int nkeyatts)
+{
+	int stride = ninfos / nkeyatts;
+	Assert(ninfos % nkeyatts == 0);
+
+	for (int i = 0; i < ninfos; i += stride)
+	{
+		if (i % stride == 0 && flinfo[i].fn_expr != (Node *) &OPCOPTION_NULL_CONST)
+			pfree(flinfo[i].fn_expr);
+		flinfo[i].fn_expr = NULL;
+	}
 }
 
 /*

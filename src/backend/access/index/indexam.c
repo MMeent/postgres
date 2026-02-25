@@ -941,6 +941,7 @@ index_getprocinfo(Relation irel,
 	{
 		const RegProcedure *loc = irel->rd_support;
 		RegProcedure procId;
+		Node	   *opcoptions;
 
 		Assert(loc != NULL);
 
@@ -956,17 +957,25 @@ index_getprocinfo(Relation irel,
 			elog(ERROR, "missing support function %d for attribute %d of index \"%s\"",
 				 procnum, attnum, RelationGetRelationName(irel));
 
+		/*
+		 * irel->rd_supportinfo[].fn_expr is pre-populated during cache
+		 * initialization; though only after optsproc has been used.
+		 */
+		opcoptions = locinfo->fn_expr;
 		fmgr_info_cxt(procId, locinfo, irel->rd_indexcxt);
 
 		if (procnum != optsproc)
 		{
-			/* Initialize locinfo->fn_expr with opclass options Const */
-			bytea	  **attoptions = RelationGetIndexAttOptions(irel, false);
-			MemoryContext oldcxt = MemoryContextSwitchTo(irel->rd_indexcxt);
-
-			set_fn_opclass_options(locinfo, attoptions[attnum - 1]);
-
-			MemoryContextSwitchTo(oldcxt);
+			/*
+			 * Even without attoptions, opcoptions here would not be NULL,
+			 * but instead would have ((Const *) opcoptions)->constisnull.
+			 */
+			if (opcoptions == NULL)
+				elog(PANIC, "Invalid opcoptions for valid Relation: NULL instead of Const<null>");
+			if (nodeTag(opcoptions) != T_Const)
+				elog(PANIC, "Unexpected node tag for opcoptions: %d, expected %d",
+					 nodeTag(opcoptions), T_Const);
+			locinfo->fn_expr = opcoptions;
 		}
 	}
 
