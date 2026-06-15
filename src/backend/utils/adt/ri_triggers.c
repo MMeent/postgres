@@ -3206,27 +3206,44 @@ ri_FastPathFlushArray(RI_FastPathEntry *fpentry, TupleTableSlot *fk_slot,
 		bool		concurrently_updated;
 		ScanKeyData recheck_skey[1];
 
-		if (!ri_LockPKTuple(pk_rel, pk_slot, snapshot, &concurrently_updated))
-			continue;
-
-		/* Extract the PK value from the matched and locked tuple */
-		found_val = slot_getattr(pk_slot, riinfo->pk_attnums[0], &found_null);
-		Assert(!found_null);
-
-		if (concurrently_updated)
+		/*
+		 * If the FK is configured to lock the index (with conflockkeyindex),
+		 * then we don't need to lock tuples nor check for concurrent
+		 * updates, as those would've had to lock the index to be effective.
+		 * We do need to take a predicate lock on the heap page, though, 
+		 */
+		if (riinfo->conflockkeyindex)
 		{
-			/*
-			 * Build a single-key scankey for recheck.  We need the actual PK
-			 * value that was found, not the FK search value.
-			 */
-			ScanKeyEntryInitialize(&recheck_skey[0], 0, 1,
-								   fpmeta->strats[0],
-								   fpmeta->subtypes[0],
-								   idx_rel->rd_indcollation[0],
-								   fpmeta->regops[0],
-								   found_val);
-			if (!recheck_matched_pk_tuple(idx_rel, recheck_skey, 1, pk_slot))
+			/* nothing to do */
+		}
+		else
+		{
+			if (!ri_LockPKTuple(pk_rel, pk_slot, snapshot,
+								&concurrently_updated))
 				continue;
+
+			/* Extract the PK value from the matched and locked tuple */
+			found_val = slot_getattr(pk_slot, riinfo->pk_attnums[0],
+									 &found_null);
+			Assert(!found_null);
+
+			if (concurrently_updated)
+			{
+				/*
+				 * Build a single-key scankey for recheck.  We need the actual PK
+				 * value that was found, not the FK search value.
+				 */
+				ScanKeyEntryInitialize(&recheck_skey[0], 0, 1,
+									   fpmeta->strats[0],
+									   fpmeta->subtypes[0],
+									   idx_rel->rd_indcollation[0],
+									   fpmeta->regops[0],
+									   found_val);
+
+				if (!recheck_matched_pk_tuple(idx_rel, recheck_skey, 1,
+											  pk_slot))
+					continue;
+			}
 		}
 
 		/*
@@ -3276,8 +3293,16 @@ ri_FastPathProbeOne(Relation pk_rel, Relation idx_rel,
 	{
 		bool		concurrently_updated;
 
-		if (ri_LockPKTuple(pk_rel, slot, snapshot,
-						   &concurrently_updated))
+		if (riinfo->conflockkeyindex)
+		{
+			/*
+			 * index_getscan_next only produces visible tuples; and our
+			 * read-lock on the index precludes any concurrent key removals.
+			 */
+			found = true;
+		}
+		else if (ri_LockPKTuple(pk_rel, slot, snapshot,
+								&concurrently_updated))
 		{
 			if (concurrently_updated)
 				found = recheck_matched_pk_tuple(idx_rel, skey, nkeys, slot);
