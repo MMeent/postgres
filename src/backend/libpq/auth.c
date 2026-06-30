@@ -171,7 +171,7 @@ static int	CheckCertAuth(Port *port);
  * Kerberos and GSSAPI GUCs
  *----------------------------------------------------------------
  */
-char	   *pg_krb_server_keyfile;
+const char	   *pg_krb_server_keyfile;
 bool		pg_krb_caseins_users;
 bool		pg_gss_accept_delegation;
 

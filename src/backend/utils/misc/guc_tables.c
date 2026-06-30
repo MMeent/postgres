@@ -551,7 +551,7 @@ bool		log_executor_stats = false;
 bool		log_statement_stats = false;	/* this is sort of all three above
 											 * together */
 bool		log_btree_build_stats = false;
-char	   *event_source;
+const char *event_source;
 
 bool		row_security;
 bool		check_function_bodies = true;
@@ -573,20 +573,20 @@ int			log_parameter_max_length_on_error = 0;
 int			log_temp_files = -1;
 double		log_statement_sample_rate = 1.0;
 double		log_xact_sample_rate = 0;
-char	   *backtrace_functions;
+const char *backtrace_functions;
 
 int			temp_file_limit = -1;
 
 int			num_temp_buffers = 1024;
 
-char	   *cluster_name = "";
-char	   *ConfigFileName;
-char	   *HbaFileName;
-char	   *IdentFileName;
-char	   *HostsFileName;
-char	   *external_pid_file;
+const char *cluster_name = "";
+const char *ConfigFileName;
+const char *HbaFileName;
+const char *IdentFileName;
+const char *HostsFileName;
+const char *external_pid_file;
 
-char	   *application_name;
+const char *application_name;
 
 int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
@@ -614,16 +614,16 @@ int			huge_pages_status = HUGE_PAGES_UNKNOWN;
  * cases provide the value for SHOW to display.  The real state is elsewhere
  * and is kept in sync by assign_hooks.
  */
-static char *syslog_ident_str;
+static const char *syslog_ident_str;
 static double phony_random_seed;
-static char *client_encoding_string;
-static char *datestyle_string;
-static char *server_encoding_string;
-static char *server_version_string;
+static const char *client_encoding_string;
+static const char *datestyle_string;
+static const char *server_encoding_string;
+static const char *server_version_string;
 static int	server_version_num;
-static char *debug_io_direct_string;
-static char *restrict_nonsystem_relation_kind_string;
-static char *log_min_messages_string;
+static const char *debug_io_direct_string;
+static const char *restrict_nonsystem_relation_kind_string;
+static const char *log_min_messages_string;
 
 #ifdef HAVE_SYSLOG
 #define	DEFAULT_SYSLOG_FACILITY LOG_LOCAL0
@@ -632,11 +632,11 @@ static char *log_min_messages_string;
 #endif
 static int	syslog_facility = DEFAULT_SYSLOG_FACILITY;
 
-static char *timezone_string;
-static char *log_timezone_string;
-static char *timezone_abbreviations_string;
-static char *data_directory;
-static char *session_authorization_string;
+static const char *timezone_string;
+static const char *log_timezone_string;
+static const char *timezone_abbreviations_string;
+static const char *data_directory;
+static const char *session_authorization_string;
 static int	max_function_args;
 static int	max_index_keys;
 static int	max_identifier_length;
@@ -663,14 +663,14 @@ static bool assert_enabled = DEFAULT_ASSERT_ENABLED;
 #endif
 static bool exec_backend_enabled = EXEC_BACKEND_ENABLED;
 
-static char *recovery_target_timeline_string;
-static char *recovery_target_string;
-static char *recovery_target_xid_string;
-static char *recovery_target_name_string;
-static char *recovery_target_lsn_string;
+static const char *recovery_target_timeline_string;
+static const char *recovery_target_string;
+static const char *recovery_target_xid_string;
+static const char *recovery_target_name_string;
+static const char *recovery_target_lsn_string;
 
 /* should be static, but commands/variable.c needs to get at this */
-char	   *role_string;
+const char *role_string;
 
 /* should be static, but guc.c needs to get at this */
 bool		in_hot_standby_guc;

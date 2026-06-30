@@ -232,9 +232,9 @@ static PerlInterpreter *plperl_held_interp = NULL;
 
 /* GUC variables */
 static bool plperl_use_strict = false;
-static char *plperl_on_init = NULL;
-static char *plperl_on_plperl_init = NULL;
-static char *plperl_on_plperlu_init = NULL;
+static const char *plperl_on_init = NULL;
+static const char *plperl_on_plperl_init = NULL;
+static const char *plperl_on_plperlu_init = NULL;
 
 static bool plperl_ending = false;
 static OP  *(*pp_require_orig) (pTHX) = NULL;
@@ -765,7 +765,7 @@ plperl_init_interp(void)
 	if (plperl_on_init && *plperl_on_init)
 	{
 		embedding[nargs++] = "-e";
-		embedding[nargs++] = plperl_on_init;
+		embedding[nargs++] = pstrdup(plperl_on_init);
 	}
 
 	/*

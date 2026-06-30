@@ -84,7 +84,7 @@ typedef struct
 
 /* GUC parameters */
 int			Password_encryption = PASSWORD_TYPE_SCRAM_SHA_256;
-char	   *createrole_self_grant = "";
+const char *createrole_self_grant = "";
 static bool createrole_self_grant_enabled = false;
 static GrantRoleOptions createrole_self_grant_options;
 
@@ -2527,7 +2527,7 @@ InitGrantRoleOptions(GrantRoleOptions *popt)
  * GUC check_hook for createrole_self_grant
  */
 bool
-check_createrole_self_grant(char **newval, void **extra, GucSource source)
+check_createrole_self_grant(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawstring;
 	List	   *elemlist;

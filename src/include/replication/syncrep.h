@@ -74,7 +74,7 @@ typedef struct SyncRepConfigData
 extern PGDLLIMPORT SyncRepConfigData *SyncRepConfig;
 
 /* user-settable parameters for synchronous replication */
-extern PGDLLIMPORT char *SyncRepStandbyNames;
+extern PGDLLIMPORT const char *SyncRepStandbyNames;
 
 /* called by user backend */
 extern void SyncRepWaitForLSN(XLogRecPtr lsn, bool commit);

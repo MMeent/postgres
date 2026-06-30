@@ -42,11 +42,11 @@ PG_MODULE_MAGIC_EXT(
 					.version = PG_VERSION
 );
 
-static char *archive_directory = NULL;
+static const char *archive_directory = NULL;
 
 static bool basic_archive_configured(ArchiveModuleState *state);
 static bool basic_archive_file(ArchiveModuleState *state, const char *file, const char *path);
-static bool check_archive_directory(char **newval, void **extra, GucSource source);
+static bool check_archive_directory(const char **newval, void **extra, GucSource source);
 static bool compare_files(const char *file1, const char *file2);
 
 static const ArchiveModuleCallbacks basic_archive_callbacks = {
@@ -93,7 +93,7 @@ _PG_archive_module_init(void)
  * Checks that the provided archive directory path isn't too long.
  */
 static bool
-check_archive_directory(char **newval, void **extra, GucSource source)
+check_archive_directory(const char **newval, void **extra, GucSource source)
 {
 	/*
 	 * The default value is an empty string, so we have to accept that value.

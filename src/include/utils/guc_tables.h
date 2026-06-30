@@ -34,7 +34,7 @@ union config_var_val
 	bool		boolval;
 	int			intval;
 	double		realval;
-	char	   *stringval;
+	const char *stringval;
 	int			enumval;
 };
 
@@ -189,13 +189,13 @@ struct config_real
 struct config_string
 {
 	/* constant fields, must be set correctly in initial value: */
-	char	  **variable;
+	const char **variable;
 	const char *boot_val;
 	GucStringCheckHook check_hook;
 	GucStringAssignHook assign_hook;
 	GucShowHook show_hook;
 	/* variable fields, initialized at runtime: */
-	char	   *reset_val;
+	const char *reset_val;
 };
 
 struct config_enum

@@ -16,7 +16,7 @@
 #include "libpq/libpq-be.h"
 #include "libpq/sasl.h"
 
-extern PGDLLIMPORT char *oauth_validator_libraries_string;
+extern PGDLLIMPORT const char *oauth_validator_libraries_string;
 
 typedef struct ValidatorModuleState
 {
@@ -62,7 +62,7 @@ typedef struct ValidatorModuleResult
 	 *
 	 * This string may be either of static duration or palloc'd.
 	 */
-	char	   *error_detail;
+	const char *error_detail;
 } ValidatorModuleResult;
 
 /*

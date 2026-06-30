@@ -112,9 +112,9 @@ emit_log_hook_type emit_log_hook = NULL;
 
 /* GUC parameters */
 int			Log_error_verbosity = PGERROR_DEFAULT;
-char	   *Log_line_prefix = NULL; /* format for extra log line info */
+const char *Log_line_prefix = NULL; /* format for extra log line info */
 int			Log_destination = LOG_DESTINATION_STDERR;
-char	   *Log_destination_string = NULL;
+const char *Log_destination_string = NULL;
 bool		syslog_sequence_numbers = true;
 bool		syslog_split_messages = true;
 
@@ -2360,7 +2360,7 @@ DebugFileOpen(void)
  * which sets the default level for process types that aren't specified.
  */
 bool
-check_log_min_messages(char **newval, void **extra, GucSource source)
+check_log_min_messages(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawstring;
 	List	   *elemlist;
@@ -2548,7 +2548,7 @@ lmm_fail:
 		return false;
 	}
 
-	guc_free(*newval);
+	guc_free(unconstify(char *, *newval));
 	*newval = result;
 
 	guc_free(rawstring);
@@ -2605,7 +2605,7 @@ assign_log_min_messages(const char *newval, void *extra)
  * single palloc() chunk.
  */
 bool
-check_backtrace_functions(char **newval, void **extra, GucSource source)
+check_backtrace_functions(const char **newval, void **extra, GucSource source)
 {
 	int			newvallen = strlen(*newval);
 	char	   *someval;
@@ -2675,7 +2675,7 @@ assign_backtrace_functions(const char *newval, void *extra)
  * GUC check_hook for log_destination
  */
 bool
-check_log_destination(char **newval, void **extra, GucSource source)
+check_log_destination(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawstring;
 	List	   *elemlist;

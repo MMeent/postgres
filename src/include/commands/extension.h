@@ -18,7 +18,7 @@
 #include "parser/parse_node.h"
 
 /* GUC */
-extern PGDLLIMPORT char *Extension_control_path;
+extern PGDLLIMPORT const char *Extension_control_path;
 
 /*
  * creating_extension is only true while running a CREATE EXTENSION or ALTER

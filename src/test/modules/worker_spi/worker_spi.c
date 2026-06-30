@@ -50,8 +50,8 @@ pg_noreturn PGDLLEXPORT void worker_spi_main(Datum main_arg);
 /* GUC variables */
 static int	worker_spi_naptime = 10;
 static int	worker_spi_total_workers = 2;
-static char *worker_spi_database = NULL;
-static char *worker_spi_role = NULL;
+static const char *worker_spi_database = NULL;
+static const char *worker_spi_role = NULL;
 
 /* value cached, fetched from shared memory */
 static uint32 worker_spi_wait_event_main = 0;

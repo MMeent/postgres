@@ -87,7 +87,7 @@ static char *post_opts = NULL;
 static const char *progname;
 static char *log_file = NULL;
 static char *exec_path = NULL;
-static char *event_source = NULL;
+static const char *event_source = NULL;
 static char *register_servicename = "PostgreSQL";	/* FIXME: + version ID? */
 static char *register_username = NULL;
 static char *register_password = NULL;

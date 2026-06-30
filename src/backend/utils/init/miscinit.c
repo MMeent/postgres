@@ -1780,9 +1780,9 @@ ValidatePgVersion(const char *path)
  * GUC variables: lists of library names to be preloaded at postmaster
  * start and at backend start
  */
-char	   *session_preload_libraries_string = NULL;
-char	   *shared_preload_libraries_string = NULL;
-char	   *local_preload_libraries_string = NULL;
+const char *session_preload_libraries_string = NULL;
+const char *shared_preload_libraries_string = NULL;
+const char *local_preload_libraries_string = NULL;
 
 /* Flag telling that we are loading shared_preload_libraries */
 bool		process_shared_preload_libraries_in_progress = false;

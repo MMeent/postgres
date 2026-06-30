@@ -82,8 +82,8 @@
 #include "utils/varlena.h"
 
 /* GUC variables */
-char	   *default_tablespace = NULL;
-char	   *temp_tablespaces = NULL;
+const char *default_tablespace = NULL;
+const char *temp_tablespaces = NULL;
 bool		allow_in_place_tablespaces = false;
 
 Oid			binary_upgrade_next_pg_tablespace_oid = InvalidOid;
@@ -1102,7 +1102,7 @@ AlterTableSpaceOptions(AlterTableSpaceOptionsStmt *stmt)
 
 /* check_hook: validate new default_tablespace */
 bool
-check_default_tablespace(char **newval, void **extra, GucSource source)
+check_default_tablespace(const char **newval, void **extra, GucSource source)
 {
 	/*
 	 * If we aren't inside a transaction, or connected to a database, we
@@ -1209,7 +1209,7 @@ typedef struct
 
 /* check_hook: validate new temp_tablespaces */
 bool
-check_temp_tablespaces(char **newval, void **extra, GucSource source)
+check_temp_tablespaces(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawname;
 	List	   *namelist;

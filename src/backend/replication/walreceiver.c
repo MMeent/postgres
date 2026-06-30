@@ -166,7 +166,7 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 	char	   *err;
 	char	   *sender_host = NULL;
 	int			sender_port = 0;
-	char	   *appname;
+	const char *appname;
 
 	Assert(startup_data_len == 0);
 

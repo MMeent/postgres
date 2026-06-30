@@ -38,9 +38,9 @@ static const OAuthValidatorCallbacks validator_callbacks = {
 };
 
 /* GUCs */
-static char *authn_id = NULL;
+static const char *authn_id = NULL;
 static bool authorize_tokens = true;
-static char *error_detail = NULL;
+static const char *error_detail = NULL;
 static bool internal_error = false;
 static bool invalid_hba = false;
 

@@ -83,22 +83,22 @@ const struct config_enum_entry recovery_target_action_options[] = {
 };
 
 /* options formerly taken from recovery.conf for archive recovery */
-char	   *recoveryRestoreCommand = NULL;
-char	   *recoveryEndCommand = NULL;
-char	   *archiveCleanupCommand = NULL;
+const char *recoveryRestoreCommand = NULL;
+const char *recoveryEndCommand = NULL;
+const char *archiveCleanupCommand = NULL;
 RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
 bool		recoveryTargetInclusive = true;
 int			recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
 TransactionId recoveryTargetXid;
-char	   *recovery_target_time_string;
+const char *recovery_target_time_string;
 TimestampTz recoveryTargetTime;
 const char *recoveryTargetName;
 XLogRecPtr	recoveryTargetLSN;
 int			recovery_min_apply_delay = 0;
 
 /* options formerly taken from recovery.conf for XLOG streaming */
-char	   *PrimaryConnInfo = NULL;
-char	   *PrimarySlotName = NULL;
+const char *PrimaryConnInfo = NULL;
+const char *PrimarySlotName = NULL;
 bool		wal_receiver_create_temp_slot = false;
 
 /*
@@ -4748,7 +4748,7 @@ RecoveryRequiresIntParameter(const char *param_name, int currValue, int minValue
  * GUC check_hook for primary_slot_name
  */
 bool
-check_primary_slot_name(char **newval, void **extra, GucSource source)
+check_primary_slot_name(const char **newval, void **extra, GucSource source)
 {
 	int			err_code;
 	char	   *err_msg = NULL;
@@ -4799,7 +4799,7 @@ error_multiple_recovery_targets(void)
  * GUC check_hook for recovery_target
  */
 bool
-check_recovery_target(char **newval, void **extra, GucSource source)
+check_recovery_target(const char **newval, void **extra, GucSource source)
 {
 	if (strcmp(*newval, "immediate") != 0 && strcmp(*newval, "") != 0)
 	{
@@ -4829,7 +4829,7 @@ assign_recovery_target(const char *newval, void *extra)
  * GUC check_hook for recovery_target_lsn
  */
 bool
-check_recovery_target_lsn(char **newval, void **extra, GucSource source)
+check_recovery_target_lsn(const char **newval, void **extra, GucSource source)
 {
 	if (strcmp(*newval, "") != 0)
 	{
@@ -4873,7 +4873,7 @@ assign_recovery_target_lsn(const char *newval, void *extra)
  * GUC check_hook for recovery_target_name
  */
 bool
-check_recovery_target_name(char **newval, void **extra, GucSource source)
+check_recovery_target_name(const char **newval, void **extra, GucSource source)
 {
 	/* Use the value of newval directly */
 	if (strlen(*newval) >= MAXFNAMELEN)
@@ -4914,7 +4914,7 @@ assign_recovery_target_name(const char *newval, void *extra)
  * and parse it again when we need to use it.
  */
 bool
-check_recovery_target_time(char **newval, void **extra, GucSource source)
+check_recovery_target_time(const char **newval, void **extra, GucSource source)
 {
 	if (strcmp(*newval, "") != 0)
 	{
@@ -4931,7 +4931,7 @@ check_recovery_target_time(char **newval, void **extra, GucSource source)
 		 * parse timestamp value (see also timestamptz_in())
 		 */
 		{
-			char	   *str = *newval;
+			const char *str = *newval;
 			fsec_t		fsec;
 			struct pg_tm tt,
 					   *tm = &tt;
@@ -4985,7 +4985,7 @@ assign_recovery_target_time(const char *newval, void *extra)
  * GUC check_hook for recovery_target_timeline
  */
 bool
-check_recovery_target_timeline(char **newval, void **extra, GucSource source)
+check_recovery_target_timeline(const char **newval, void **extra, GucSource source)
 {
 	RecoveryTargetTimeLineGoal rttg;
 	RecoveryTargetTimeLineGoal *myextra;
@@ -5045,14 +5045,14 @@ assign_recovery_target_timeline(const char *newval, void *extra)
  * GUC check_hook for recovery_target_xid
  */
 bool
-check_recovery_target_xid(char **newval, void **extra, GucSource source)
+check_recovery_target_xid(const char **newval, void **extra, GucSource source)
 {
 	if (strcmp(*newval, "") != 0)
 	{
 		TransactionId xid;
 		TransactionId *myextra;
 		char	   *endp;
-		char	   *val;
+		const char	   *val;
 
 		errno = 0;
 

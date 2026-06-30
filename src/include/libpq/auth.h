@@ -32,7 +32,7 @@
  */
 #define PG_MAX_AUTH_TOKEN_LENGTH	65535
 
-extern PGDLLIMPORT char *pg_krb_server_keyfile;
+extern PGDLLIMPORT const char *pg_krb_server_keyfile;
 extern PGDLLIMPORT bool pg_krb_caseins_users;
 extern PGDLLIMPORT bool pg_gss_accept_delegation;
 

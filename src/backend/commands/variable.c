@@ -49,7 +49,7 @@
  * check_datestyle: GUC check_hook for datestyle
  */
 bool
-check_datestyle(char **newval, void **extra, GucSource source)
+check_datestyle(const char **newval, void **extra, GucSource source)
 {
 	int			newDateStyle = DateStyle;
 	int			newDateOrder = DateOrder;
@@ -145,7 +145,7 @@ check_datestyle(char **newval, void **extra, GucSource source)
 			 * We can't simply "return check_datestyle(...)" because we need
 			 * to handle constructs like "DEFAULT, ISO".
 			 */
-			char	   *subval;
+			const char *subval;
 			void	   *subextra = NULL;
 
 			subval = guc_strdup(LOG, GetConfigOptionResetString("datestyle"));
@@ -156,7 +156,7 @@ check_datestyle(char **newval, void **extra, GucSource source)
 			}
 			if (!check_datestyle(&subval, &subextra, source))
 			{
-				guc_free(subval);
+				guc_free(unconstify(char *, subval));
 				ok = false;
 				break;
 			}
@@ -165,7 +165,7 @@ check_datestyle(char **newval, void **extra, GucSource source)
 				newDateStyle = myextra[0];
 			if (!have_order)
 				newDateOrder = myextra[1];
-			guc_free(subval);
+			guc_free(unconstify(char *, subval));
 			guc_free(subextra);
 		}
 		else
@@ -221,7 +221,7 @@ check_datestyle(char **newval, void **extra, GucSource source)
 			break;
 	}
 
-	guc_free(*newval);
+	guc_free(unconstify(char *, *newval));
 	*newval = result;
 
 	/*
@@ -258,7 +258,7 @@ assign_datestyle(const char *newval, void *extra)
  * check_timezone: GUC check_hook for timezone
  */
 bool
-check_timezone(char **newval, void **extra, GucSource source)
+check_timezone(const char **newval, void **extra, GucSource source)
 {
 	pg_tz	   *new_tz;
 	long		gmtoffset;
@@ -415,7 +415,7 @@ show_timezone(void)
  * check_log_timezone: GUC check_hook for log_timezone
  */
 bool
-check_log_timezone(char **newval, void **extra, GucSource source)
+check_log_timezone(const char **newval, void **extra, GucSource source)
 {
 	pg_tz	   *new_tz;
 
@@ -484,7 +484,7 @@ show_log_timezone(void)
  * GUC check_hook for timezone_abbreviations
  */
 bool
-check_timezone_abbreviations(char **newval, void **extra, GucSource source)
+check_timezone_abbreviations(const char **newval, void **extra, GucSource source)
 {
 	/*
 	 * The boot_val for timezone_abbreviations is NULL.  When we see that we
@@ -685,7 +685,7 @@ show_random_seed(void)
  */
 
 bool
-check_client_encoding(char **newval, void **extra, GucSource source)
+check_client_encoding(const char **newval, void **extra, GucSource source)
 {
 	int			encoding;
 	const char *canonical_name;
@@ -765,7 +765,7 @@ check_client_encoding(char **newval, void **extra, GucSource source)
 	if (strcmp(*newval, canonical_name) != 0 &&
 		strcmp(*newval, "UNICODE") != 0)
 	{
-		guc_free(*newval);
+		guc_free(unconstify(char *, *newval));
 		*newval = guc_strdup(LOG, canonical_name);
 		if (!*newval)
 			return false;
@@ -812,7 +812,7 @@ typedef struct
 } role_auth_extra;
 
 bool
-check_session_authorization(char **newval, void **extra, GucSource source)
+check_session_authorization(const char **newval, void **extra, GucSource source)
 {
 	HeapTuple	roleTup;
 	Form_pg_authid roleform;
@@ -930,7 +930,7 @@ assign_session_authorization(const char *newval, void *extra)
  */
 
 bool
-check_role(char **newval, void **extra, GucSource source)
+check_role(const char **newval, void **extra, GucSource source)
 {
 	HeapTuple	roleTup;
 	Oid			roleid;
@@ -1056,7 +1056,7 @@ show_role(void)
  */
 
 bool
-check_canonical_path(char **newval, void **extra, GucSource source)
+check_canonical_path(const char **newval, void **extra, GucSource source)
 {
 	/*
 	 * Since canonicalize_path never enlarges the string, we can just modify
@@ -1064,7 +1064,11 @@ check_canonical_path(char **newval, void **extra, GucSource source)
 	 * for external_pid_file.
 	 */
 	if (*newval)
-		canonicalize_path(*newval);
+	{
+		char *copy = pstrdup(*newval);
+		canonicalize_path(copy);
+		*newval = copy;
+	}
 	return true;
 }
 
@@ -1077,7 +1081,7 @@ check_canonical_path(char **newval, void **extra, GucSource source)
  * GUC check_hook for application_name
  */
 bool
-check_application_name(char **newval, void **extra, GucSource source)
+check_application_name(const char **newval, void **extra, GucSource source)
 {
 	char	   *clean;
 	char	   *ret;
@@ -1094,7 +1098,7 @@ check_application_name(char **newval, void **extra, GucSource source)
 		return false;
 	}
 
-	guc_free(*newval);
+	guc_free(unconstify(char *, *newval));
 
 	pfree(clean);
 	*newval = ret;
@@ -1115,7 +1119,7 @@ assign_application_name(const char *newval, void *extra)
  * GUC check_hook for cluster_name
  */
 bool
-check_cluster_name(char **newval, void **extra, GucSource source)
+check_cluster_name(const char **newval, void **extra, GucSource source)
 {
 	char	   *clean;
 	char	   *ret;
@@ -1132,7 +1136,7 @@ check_cluster_name(char **newval, void **extra, GucSource source)
 		return false;
 	}
 
-	guc_free(*newval);
+	guc_free(unconstify(char *, *newval));
 
 	pfree(clean);
 	*newval = ret;

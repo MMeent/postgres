@@ -84,10 +84,10 @@ extern pg_locale_t create_pg_locale_libc(Oid collid, MemoryContext context);
 extern char *get_collation_actual_version_libc(const char *collcollate);
 
 /* GUC settings */
-char	   *locale_messages;
-char	   *locale_monetary;
-char	   *locale_numeric;
-char	   *locale_time;
+const char	   *locale_messages;
+const char	   *locale_monetary;
+const char	   *locale_numeric;
+const char	   *locale_time;
 
 int			icu_validation_level = WARNING;
 
@@ -337,7 +337,7 @@ check_locale(int category, const char *locale, char **canonname)
  * This will have been locked down by an earlier call to pg_perm_setlocale.
  */
 bool
-check_locale_monetary(char **newval, void **extra, GucSource source)
+check_locale_monetary(const char **newval, void **extra, GucSource source)
 {
 	return check_locale(LC_MONETARY, *newval, NULL);
 }
@@ -349,7 +349,7 @@ assign_locale_monetary(const char *newval, void *extra)
 }
 
 bool
-check_locale_numeric(char **newval, void **extra, GucSource source)
+check_locale_numeric(const char **newval, void **extra, GucSource source)
 {
 	return check_locale(LC_NUMERIC, *newval, NULL);
 }
@@ -361,7 +361,7 @@ assign_locale_numeric(const char *newval, void *extra)
 }
 
 bool
-check_locale_time(char **newval, void **extra, GucSource source)
+check_locale_time(const char **newval, void **extra, GucSource source)
 {
 	return check_locale(LC_TIME, *newval, NULL);
 }
@@ -383,7 +383,7 @@ assign_locale_time(const char *newval, void *extra)
  * during startup, until we can read the proper value from postgresql.conf.
  */
 bool
-check_locale_messages(char **newval, void **extra, GucSource source)
+check_locale_messages(const char **newval, void **extra, GucSource source)
 {
 	if (**newval == '\0')
 	{

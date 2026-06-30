@@ -3989,7 +3989,7 @@ data_sync_elevel(int elevel)
 }
 
 bool
-check_debug_io_direct(char **newval, void **extra, GucSource source)
+check_debug_io_direct(const char **newval, void **extra, GucSource source)
 {
 	bool		result = true;
 	int			flags;

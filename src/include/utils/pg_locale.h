@@ -32,10 +32,10 @@
 #define UNICODE_CASEMAP_BUFSZ	(UNICODE_CASEMAP_LEN * MAX_MULTIBYTE_CHAR_LEN)
 
 /* GUC settings */
-extern PGDLLIMPORT char *locale_messages;
-extern PGDLLIMPORT char *locale_monetary;
-extern PGDLLIMPORT char *locale_numeric;
-extern PGDLLIMPORT char *locale_time;
+extern PGDLLIMPORT const char *locale_messages;
+extern PGDLLIMPORT const char *locale_monetary;
+extern PGDLLIMPORT const char *locale_numeric;
+extern PGDLLIMPORT const char *locale_time;
 extern PGDLLIMPORT int icu_validation_level;
 
 /* lc_time localization cache */

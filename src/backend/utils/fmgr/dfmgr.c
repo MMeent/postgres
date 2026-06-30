@@ -66,7 +66,7 @@ static DynamicFileList *file_tail = NULL;
 #define SAME_INODE(A,B) false
 #endif
 
-char	   *Dynamic_library_path;
+const char *Dynamic_library_path;
 
 static void *internal_load_library(const char *libname);
 pg_noreturn static void incompatible_module_error(const char *libname,

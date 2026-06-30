@@ -34,14 +34,14 @@
 #include "utils/injection_point.h"
 #include "utils/wait_event.h"
 
-char	   *ssl_library;
-char	   *ssl_cert_file;
-char	   *ssl_key_file;
-char	   *ssl_ca_file;
-char	   *ssl_crl_file;
-char	   *ssl_crl_dir;
-char	   *ssl_dh_params_file;
-char	   *ssl_passphrase_command;
+const char	   *ssl_library;
+const char	   *ssl_cert_file;
+const char	   *ssl_key_file;
+const char	   *ssl_ca_file;
+const char	   *ssl_crl_file;
+const char	   *ssl_crl_dir;
+const char	   *ssl_dh_params_file;
+const char	   *ssl_passphrase_command;
 bool		ssl_passphrase_command_supports_reload;
 
 #ifdef USE_SSL
@@ -49,11 +49,11 @@ bool		ssl_loaded_verify_locations = false;
 #endif
 
 /* GUC variable controlling SSL cipher list */
-char	   *SSLCipherSuites = NULL;
-char	   *SSLCipherList = NULL;
+const char	   *SSLCipherSuites = NULL;
+const char	   *SSLCipherList = NULL;
 
 /* GUC variable for default ECDH curve. */
-char	   *SSLECDHCurve;
+const char	   *SSLECDHCurve;
 
 /* GUC variable: if false, prefer client ciphers */
 bool		SSLPreferServerCiphers;

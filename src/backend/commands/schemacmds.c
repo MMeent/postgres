@@ -60,7 +60,7 @@ CreateSchemaCommand(ParseState *pstate, CreateSchemaStmt *stmt,
 	Oid			saved_uid;
 	int			save_sec_context;
 	int			save_nestlevel;
-	char	   *nsp = namespace_search_path;
+	const char *nsp = namespace_search_path;
 	AclResult	aclresult;
 	ObjectAddress address;
 	StringInfoData pathbuf;

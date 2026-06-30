@@ -64,8 +64,8 @@ static const bbsink_ops bbsink_shell_ops = {
 	.cleanup = bbsink_forward_cleanup
 };
 
-static char *shell_command = "";
-static char *shell_required_role = "";
+static const char *shell_command = "";
+static const char *shell_required_role = "";
 
 void
 _PG_init(void)

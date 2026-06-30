@@ -124,12 +124,12 @@ int			wal_keep_size_mb = 0;
 int			XLOGbuffers = -1;
 int			XLogArchiveTimeout = 0;
 int			XLogArchiveMode = ARCHIVE_MODE_OFF;
-char	   *XLogArchiveCommand = NULL;
+const char *XLogArchiveCommand = NULL;
 bool		EnableHotStandby = false;
 bool		fullPageWrites = true;
 bool		wal_log_hints = false;
 int			wal_compression = WAL_COMPRESSION_NONE;
-char	   *wal_consistency_checking_string = NULL;
+const char *wal_consistency_checking_string = NULL;
 bool	   *wal_consistency_checking = NULL;
 bool		wal_init_zero = true;
 bool		wal_recycle = true;
@@ -5072,7 +5072,7 @@ check_wal_buffers(int *newval, void **extra, GucSource source)
  * GUC check_hook for wal_consistency_checking
  */
 bool
-check_wal_consistency_checking(char **newval, void **extra, GucSource source)
+check_wal_consistency_checking(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawstring;
 	List	   *elemlist;

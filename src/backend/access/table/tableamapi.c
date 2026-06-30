@@ -98,7 +98,7 @@ GetTableAmRoutine(Oid amhandler)
 
 /* check_hook: validate new default_table_access_method */
 bool
-check_default_table_access_method(char **newval, void **extra, GucSource source)
+check_default_table_access_method(const char **newval, void **extra, GucSource source)
 {
 	if (**newval == '\0')
 	{

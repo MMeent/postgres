@@ -88,7 +88,7 @@
 #include "utils/wait_event.h"
 
 /* User-settable parameters for sync rep */
-char	   *SyncRepStandbyNames;
+const char *SyncRepStandbyNames;
 
 #define SyncStandbysDefined() \
 	(SyncRepStandbyNames != NULL && SyncRepStandbyNames[0] != '\0')
@@ -1064,7 +1064,7 @@ SyncRepQueueIsOrderedByLSN(int mode)
  */
 
 bool
-check_synchronous_standby_names(char **newval, void **extra, GucSource source)
+check_synchronous_standby_names(const char **newval, void **extra, GucSource source)
 {
 	if (*newval != NULL && (*newval)[0] != '\0')
 	{

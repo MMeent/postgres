@@ -74,7 +74,7 @@
 
 
 /* GUC */
-char	   *Extension_control_path;
+const char *Extension_control_path;
 
 /* Globally visible state variables */
 bool		creating_extension = false;

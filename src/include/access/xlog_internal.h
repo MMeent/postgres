@@ -402,6 +402,6 @@ extern void XLogRecGetBlockRefInfo(XLogReaderState *record, bool pretty,
 extern PGDLLIMPORT bool ArchiveRecoveryRequested;
 extern PGDLLIMPORT bool InArchiveRecovery;
 extern PGDLLIMPORT bool StandbyMode;
-extern PGDLLIMPORT char *recoveryRestoreCommand;
+extern PGDLLIMPORT const char *recoveryRestoreCommand;
 
 #endif							/* XLOG_INTERNAL_H */

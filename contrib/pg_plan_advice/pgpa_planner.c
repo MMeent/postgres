@@ -203,7 +203,7 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
 {
 	pgpa_trove *trove = NULL;
 	pgpa_planner_state *pps;
-	char	   *supplied_advice;
+	const char *supplied_advice;
 	bool		generate_advice_feedback = false;
 	bool		generate_advice_string = false;
 	bool		needs_pps = false;

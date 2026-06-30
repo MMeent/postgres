@@ -102,21 +102,21 @@ extern ssize_t secure_raw_write(Port *port, const void *ptr, size_t len);
 /*
  * declarations for variables defined in be-secure.c
  */
-extern PGDLLIMPORT char *ssl_library;
-extern PGDLLIMPORT char *ssl_ca_file;
-extern PGDLLIMPORT char *ssl_cert_file;
-extern PGDLLIMPORT char *ssl_crl_file;
-extern PGDLLIMPORT char *ssl_crl_dir;
-extern PGDLLIMPORT char *ssl_key_file;
+extern PGDLLIMPORT const char *ssl_library;
+extern PGDLLIMPORT const char *ssl_ca_file;
+extern PGDLLIMPORT const char *ssl_cert_file;
+extern PGDLLIMPORT const char *ssl_crl_file;
+extern PGDLLIMPORT const char *ssl_crl_dir;
+extern PGDLLIMPORT const char *ssl_key_file;
 extern PGDLLIMPORT int ssl_min_protocol_version;
 extern PGDLLIMPORT int ssl_max_protocol_version;
-extern PGDLLIMPORT char *ssl_passphrase_command;
+extern PGDLLIMPORT const char *ssl_passphrase_command;
 extern PGDLLIMPORT bool ssl_passphrase_command_supports_reload;
-extern PGDLLIMPORT char *ssl_dh_params_file;
+extern PGDLLIMPORT const char *ssl_dh_params_file;
 extern PGDLLIMPORT bool ssl_sni;
-extern PGDLLIMPORT char *SSLCipherSuites;
-extern PGDLLIMPORT char *SSLCipherList;
-extern PGDLLIMPORT char *SSLECDHCurve;
+extern PGDLLIMPORT const char *SSLCipherSuites;
+extern PGDLLIMPORT const char *SSLCipherList;
+extern PGDLLIMPORT const char *SSLECDHCurve;
 extern PGDLLIMPORT bool SSLPreferServerCiphers;
 #ifdef USE_SSL
 extern PGDLLIMPORT bool ssl_loaded_verify_locations;

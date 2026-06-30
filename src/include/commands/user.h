@@ -19,7 +19,7 @@
 
 /* GUCs */
 extern PGDLLIMPORT int Password_encryption; /* values from enum PasswordType */
-extern PGDLLIMPORT char *createrole_self_grant;
+extern PGDLLIMPORT const char *createrole_self_grant;
 
 /* Hook to check passwords in CreateRole() and AlterRole() */
 typedef void (*check_password_hook_type) (const char *username, const char *shadow_pass, PasswordType password_type, Datum validuntil_time, bool validuntil_null);
@@ -36,7 +36,7 @@ extern void DropOwnedObjects(DropOwnedStmt *stmt);
 extern void ReassignOwnedObjects(ReassignOwnedStmt *stmt);
 extern List *roleSpecsToIds(List *memberNames);
 
-extern bool check_createrole_self_grant(char **newval, void **extra,
+extern bool check_createrole_self_grant(const char **newval, void **extra,
 										GucSource source);
 extern void assign_createrole_self_grant(const char *newval, void *extra);
 

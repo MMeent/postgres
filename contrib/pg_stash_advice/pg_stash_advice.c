@@ -44,7 +44,7 @@ static dshash_parameters pgsa_entry_dshash_parameters = {
 };
 
 /* GUC variables */
-static char *pg_stash_advice_stash_name = "";
+static const char *pg_stash_advice_stash_name = "";
 bool		pg_stash_advice_persist = true;
 int			pg_stash_advice_persist_interval = 30;
 
@@ -63,10 +63,10 @@ static char *pgsa_advisor(PlannerGlobal *glob,
 						  const char *query_string,
 						  int cursorOptions,
 						  ExplainState *es);
-static bool pgsa_check_stash_name_guc(char **newval, void **extra,
-									  GucSource source);
+static bool pgsa_check_stash_name_guc(const char **newval, void **extra,
+                                      GucSource source);
 static void pgsa_init_shared_state(void *ptr, void *arg);
-static bool pgsa_is_identifier(char *str);
+static bool pgsa_is_identifier(const char *str);
 
 /* Stash name -> stash ID hash table */
 #define SH_PREFIX pgsa_stash_name_table
@@ -377,9 +377,9 @@ pgsa_check_stash_name(char *stash_name)
  * though, as equivalent to disabling the feature.
  */
 static bool
-pgsa_check_stash_name_guc(char **newval, void **extra, GucSource source)
+pgsa_check_stash_name_guc(const char **newval, void **extra, GucSource source)
 {
-	char	   *stash_name = *newval;
+	const char *stash_name = *newval;
 
 	/* Reject overlong advice stash names. */
 	if (strlen(stash_name) + 1 > NAMEDATALEN)
@@ -602,7 +602,7 @@ pgsa_init_shared_state(void *ptr, void *arg)
  * ASCII identifier characters, and must not begin with a digit.
  */
 static bool
-pgsa_is_identifier(char *str)
+pgsa_is_identifier(const char *str)
 {
 	if (*str >= '0' && *str <= '9')
 		return false;
@@ -625,7 +625,7 @@ pgsa_is_identifier(char *str)
  * Returns 0 if no such stash exists.
  */
 uint64
-pgsa_lookup_stash_id(char *stash_name)
+pgsa_lookup_stash_id(const char *stash_name)
 {
 	pgsa_stash *stash;
 	uint64		stash_id;
@@ -644,7 +644,7 @@ pgsa_lookup_stash_id(char *stash_name)
  * Store a new or updated advice string for the given advice stash and query ID.
  */
 void
-pgsa_set_advice_string(char *stash_name, int64 queryId, char *advice_string)
+pgsa_set_advice_string(const char *stash_name, int64 queryId, char *advice_string)
 {
 	pgsa_entry *entry;
 	bool		found;

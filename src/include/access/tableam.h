@@ -29,7 +29,7 @@
 #define DEFAULT_TABLE_ACCESS_METHOD	"heap"
 
 /* GUCs */
-extern PGDLLIMPORT char *default_table_access_method;
+extern PGDLLIMPORT const char *default_table_access_method;
 extern PGDLLIMPORT bool synchronize_seqscans;
 
 

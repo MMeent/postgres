@@ -31,7 +31,7 @@
 PG_MODULE_MAGIC;
 
 /* GUC variables */
-char	   *pg_plan_advice_advice = NULL;
+const char *pg_plan_advice_advice = NULL;
 bool		pg_plan_advice_always_store_advice_details = false;
 static bool pg_plan_advice_always_explain_supplied_advice = true;
 bool		pg_plan_advice_feedback_warnings = false;
@@ -54,8 +54,8 @@ static void pg_plan_advice_explain_per_plan_hook(PlannedStmt *plannedstmt,
 												 const char *queryString,
 												 ParamListInfo params,
 												 QueryEnvironment *queryEnv);
-static bool pg_plan_advice_advice_check_hook(char **newval, void **extra,
-											 GucSource source);
+static bool pg_plan_advice_advice_check_hook(const char **newval, void **extra,
+                                             GucSource source);
 static DefElem *find_defelem_by_defname(List *deflist, char *defname);
 
 /*
@@ -166,7 +166,7 @@ pg_plan_advice_should_explain(ExplainState *es)
 /*
  * Get the advice that should be used while planning a particular query.
  */
-char *
+const char *
 pg_plan_advice_get_supplied_query_advice(PlannerGlobal *glob,
 										 Query *parse,
 										 const char *query_string,
@@ -410,7 +410,7 @@ pg_plan_advice_explain_per_plan_hook(PlannedStmt *plannedstmt,
  * Check hook for pg_plan_advice.advice
  */
 static bool
-pg_plan_advice_advice_check_hook(char **newval, void **extra, GucSource source)
+pg_plan_advice_advice_check_hook(const char **newval, void **extra, GucSource source)
 {
 	MemoryContext oldcontext;
 	MemoryContext tmpcontext;

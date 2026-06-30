@@ -204,10 +204,10 @@ BackgroundWorker *MyBgworkerEntry = NULL;
 int			PostPortNumber = DEF_PGPORT;
 
 /* The directory names for Unix socket(s) */
-char	   *Unix_socket_directories;
+const char	   *Unix_socket_directories;
 
 /* The TCP listen address(es) */
-char	   *ListenAddresses;
+const char	   *ListenAddresses;
 
 /*
  * SuperuserReservedConnections is the number of backends reserved for
@@ -244,7 +244,7 @@ int			AuthenticationTimeout = 60;
 bool		log_hostname;		/* for ps display and logging */
 
 bool		enable_bonjour = false;
-char	   *bonjour_name;
+const char	   *bonjour_name;
 bool		restart_after_crash = true;
 bool		remove_temp_files_after_crash = true;
 

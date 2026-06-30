@@ -16,7 +16,7 @@ override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
 
 OBJS = \
 	conffiles.o \
-	guc.o \
+	guc_collection.o \
 	guc-file.o \
 	guc_funcs.o \
 	guc_tables.o \

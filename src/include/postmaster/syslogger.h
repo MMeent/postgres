@@ -70,8 +70,8 @@ typedef union
 extern PGDLLIMPORT bool Logging_collector;
 extern PGDLLIMPORT int Log_RotationAge;
 extern PGDLLIMPORT int Log_RotationSize;
-extern PGDLLIMPORT char *Log_directory;
-extern PGDLLIMPORT char *Log_filename;
+extern PGDLLIMPORT const char *Log_directory;
+extern PGDLLIMPORT const char *Log_filename;
 extern PGDLLIMPORT bool Log_truncate_on_rotation;
 extern PGDLLIMPORT int Log_file_mode;
 

@@ -176,21 +176,24 @@ struct config_enum_entry
 	int			val;
 	bool		hidden;
 };
+#define TEMPLATE_EACH_GUC_TYPE() \
+	GUC_TYPE_TEMPLATE(Bool, bool) \
+	GUC_TYPE_TEMPLATE(Int, int) \
+	GUC_TYPE_TEMPLATE(Real, double) \
+	GUC_TYPE_TEMPLATE(String, const char *) \
+	GUC_TYPE_TEMPLATE(Enum, int)
+
 
 /*
  * Signatures for per-variable check/assign/show hook functions
  */
-typedef bool (*GucBoolCheckHook) (bool *newval, void **extra, GucSource source);
-typedef bool (*GucIntCheckHook) (int *newval, void **extra, GucSource source);
-typedef bool (*GucRealCheckHook) (double *newval, void **extra, GucSource source);
-typedef bool (*GucStringCheckHook) (char **newval, void **extra, GucSource source);
-typedef bool (*GucEnumCheckHook) (int *newval, void **extra, GucSource source);
+#define GUC_TYPE_TEMPLATE(NAME, TYPE) \
+typedef void (*Guc ## NAME ## AssignHook) (TYPE newval, void *extra); \
+typedef bool (*Guc ## NAME ## CheckHook) (TYPE *newval, void **extra, GucSource source); \
+typedef bool (*Guc ## NAME ## ShowHook) (TYPE val, void **extra, GucSource source);
 
-typedef void (*GucBoolAssignHook) (bool newval, void *extra);
-typedef void (*GucIntAssignHook) (int newval, void *extra);
-typedef void (*GucRealAssignHook) (double newval, void *extra);
-typedef void (*GucStringAssignHook) (const char *newval, void *extra);
-typedef void (*GucEnumAssignHook) (int newval, void *extra);
+TEMPLATE_EACH_GUC_TYPE()
+#undef GUC_TYPE_TEMPLATE
 
 typedef const char *(*GucShowHook) (void);
 
@@ -285,7 +288,7 @@ extern PGDLLIMPORT bool log_planner_stats;
 extern PGDLLIMPORT bool log_executor_stats;
 extern PGDLLIMPORT bool log_statement_stats;
 extern PGDLLIMPORT bool log_btree_build_stats;
-extern PGDLLIMPORT char *event_source;
+extern PGDLLIMPORT const char *event_source;
 
 extern PGDLLIMPORT bool check_function_bodies;
 extern PGDLLIMPORT bool current_role_is_superuser;
@@ -302,27 +305,27 @@ extern PGDLLIMPORT int log_min_duration_statement;
 extern PGDLLIMPORT int log_temp_files;
 extern PGDLLIMPORT double log_statement_sample_rate;
 extern PGDLLIMPORT double log_xact_sample_rate;
-extern PGDLLIMPORT char *backtrace_functions;
+extern PGDLLIMPORT const char *backtrace_functions;
 
 extern PGDLLIMPORT int temp_file_limit;
 
 extern PGDLLIMPORT int num_temp_buffers;
 
-extern PGDLLIMPORT char *cluster_name;
-extern PGDLLIMPORT char *ConfigFileName;
-extern PGDLLIMPORT char *HbaFileName;
-extern PGDLLIMPORT char *IdentFileName;
-extern PGDLLIMPORT char *HostsFileName;
-extern PGDLLIMPORT char *external_pid_file;
+extern PGDLLIMPORT const char *cluster_name;
+extern PGDLLIMPORT const char *ConfigFileName;
+extern PGDLLIMPORT const char *HbaFileName;
+extern PGDLLIMPORT const char *IdentFileName;
+extern PGDLLIMPORT const char *HostsFileName;
+extern PGDLLIMPORT const char *external_pid_file;
 
-extern PGDLLIMPORT char *application_name;
+extern PGDLLIMPORT const char *application_name;
 
 extern PGDLLIMPORT int tcp_keepalives_idle;
 extern PGDLLIMPORT int tcp_keepalives_interval;
 extern PGDLLIMPORT int tcp_keepalives_count;
 extern PGDLLIMPORT int tcp_user_timeout;
 
-extern PGDLLIMPORT char *role_string;
+extern PGDLLIMPORT const char *role_string;
 extern PGDLLIMPORT bool in_hot_standby_guc;
 extern PGDLLIMPORT bool trace_sort;
 
@@ -395,7 +398,7 @@ extern void DefineCustomRealVariable(const char *name,
 extern void DefineCustomStringVariable(const char *name,
 									   const char *short_desc,
 									   const char *long_desc,
-									   char **valueAddr,
+									   const char **valueAddr,
 									   const char *bootValue,
 									   GucContext context,
 									   int flags,

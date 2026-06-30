@@ -43,7 +43,7 @@ static PgFdwOption *postgres_fdw_options;
 /*
  * GUC parameters
  */
-char	   *pgfdw_application_name = NULL;
+const char *pgfdw_application_name = NULL;
 
 /*
  * Helper functions

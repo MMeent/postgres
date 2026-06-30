@@ -82,7 +82,7 @@ static int	port_bio_write(BIO *h, const char *buf, int size);
 static BIO_METHOD *port_bio_method(void);
 static int	ssl_set_port_bio(Port *port);
 
-static DH  *load_dh_file(char *filename, bool isServerStart);
+static DH  *load_dh_file(const char *filename, bool isServerStart);
 static DH  *load_dh_buffer(const char *buffer, size_t len);
 static int	ssl_external_passwd_cb(char *buf, int size, int rwflag, void *userdata);
 static int	dummy_ssl_passwd_cb(char *buf, int size, int rwflag, void *userdata);
@@ -656,7 +656,7 @@ init_host_context(HostsLine *host, bool isServerStart)
 			if (host->ssl_passphrase_cmd && host->ssl_passphrase_cmd[0])
 			{
 				SSL_CTX_set_default_passwd_cb(ctx, ssl_external_passwd_cb);
-				SSL_CTX_set_default_passwd_cb_userdata(ctx, host->ssl_passphrase_cmd);
+				SSL_CTX_set_default_passwd_cb_userdata(ctx, unconstify(char *, host->ssl_passphrase_cmd));
 			}
 		}
 		else
@@ -670,7 +670,7 @@ init_host_context(HostsLine *host, bool isServerStart)
 				(host->ssl_passphrase_cmd && host->ssl_passphrase_cmd[0]))
 			{
 				SSL_CTX_set_default_passwd_cb(ctx, ssl_external_passwd_cb);
-				SSL_CTX_set_default_passwd_cb_userdata(ctx, host->ssl_passphrase_cmd);
+				SSL_CTX_set_default_passwd_cb_userdata(ctx, unconstify(char *, host->ssl_passphrase_cmd));
 			}
 			else
 			{
@@ -1467,7 +1467,7 @@ ssl_set_port_bio(Port *port)
  *	what we expect it to contain.
  */
 static DH  *
-load_dh_file(char *filename, bool isServerStart)
+load_dh_file(const char *filename, bool isServerStart)
 {
 	FILE	   *fp;
 	DH		   *dh = NULL;
@@ -2479,7 +2479,7 @@ default_openssl_tls_init(SSL_CTX *context, bool isServerStart)
 		if (ssl_passphrase_command[0])
 		{
 			SSL_CTX_set_default_passwd_cb(context, ssl_external_passwd_cb);
-			SSL_CTX_set_default_passwd_cb_userdata(context, ssl_passphrase_command);
+			SSL_CTX_set_default_passwd_cb_userdata(context, unconstify(char *, ssl_passphrase_command));
 		}
 	}
 	else
@@ -2487,7 +2487,7 @@ default_openssl_tls_init(SSL_CTX *context, bool isServerStart)
 		if (ssl_passphrase_command[0] && ssl_passphrase_command_supports_reload)
 		{
 			SSL_CTX_set_default_passwd_cb(context, ssl_external_passwd_cb);
-			SSL_CTX_set_default_passwd_cb_userdata(context, ssl_passphrase_command);
+			SSL_CTX_set_default_passwd_cb_userdata(context, unconstify(char *, ssl_passphrase_command));
 		}
 		else
 

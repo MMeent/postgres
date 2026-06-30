@@ -244,8 +244,8 @@ typedef struct pltcl_call_state
 /**********************************************************************
  * Global data
  **********************************************************************/
-static char *pltcl_start_proc = NULL;
-static char *pltclu_start_proc = NULL;
+static const char *pltcl_start_proc = NULL;
+static const char *pltclu_start_proc = NULL;
 static bool pltcl_pm_init_done = false;
 static Tcl_Interp *pltcl_hold_interp = NULL;
 static HTAB *pltcl_interp_htab = NULL;
@@ -599,7 +599,7 @@ static void
 call_pltcl_start_proc(Oid prolang, bool pltrusted)
 {
 	LOCAL_FCINFO(fcinfo, 0);
-	char	   *start_proc;
+	const char *start_proc;
 	const char *gucname;
 	ErrorContextCallback errcallback;
 	List	   *namelist;

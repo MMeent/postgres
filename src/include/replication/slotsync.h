@@ -25,8 +25,8 @@ extern PGDLLIMPORT volatile sig_atomic_t SlotSyncShutdownPending;
  * GUCs needed by slot sync worker to connect to the primary
  * server and carry on with slots synchronization.
  */
-extern PGDLLIMPORT char *PrimaryConnInfo;
-extern PGDLLIMPORT char *PrimarySlotName;
+extern PGDLLIMPORT const char *PrimaryConnInfo;
+extern PGDLLIMPORT const char *PrimarySlotName;
 
 extern char *CheckAndGetDbnameFromConninfo(void);
 extern bool ValidateSlotSyncParams(int elevel);

@@ -129,15 +129,15 @@ extern PGDLLIMPORT XLogRecoveryCtlData *XLogRecoveryCtl;
 extern PGDLLIMPORT bool recoveryTargetInclusive;
 extern PGDLLIMPORT int recoveryTargetAction;
 extern PGDLLIMPORT int recovery_min_apply_delay;
-extern PGDLLIMPORT char *PrimaryConnInfo;
-extern PGDLLIMPORT char *PrimarySlotName;
-extern PGDLLIMPORT char *recoveryRestoreCommand;
-extern PGDLLIMPORT char *recoveryEndCommand;
-extern PGDLLIMPORT char *archiveCleanupCommand;
+extern PGDLLIMPORT const char *PrimaryConnInfo;
+extern PGDLLIMPORT const char *PrimarySlotName;
+extern PGDLLIMPORT const char *recoveryRestoreCommand;
+extern PGDLLIMPORT const char *recoveryEndCommand;
+extern PGDLLIMPORT const char *archiveCleanupCommand;
 
 /* indirectly set via GUC system */
 extern PGDLLIMPORT TransactionId recoveryTargetXid;
-extern PGDLLIMPORT char *recovery_target_time_string;
+extern PGDLLIMPORT const char *recovery_target_time_string;
 extern PGDLLIMPORT TimestampTz recoveryTargetTime;
 extern PGDLLIMPORT const char *recoveryTargetName;
 extern PGDLLIMPORT XLogRecPtr recoveryTargetLSN;

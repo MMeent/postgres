@@ -45,7 +45,7 @@
 /* GUCs */
 bool		Trace_connection_negotiation = false;
 uint32		log_connections = 0;
-char	   *log_connections_string = NULL;
+const char *log_connections_string = NULL;
 
 /* Other globals */
 
@@ -1107,7 +1107,7 @@ next:	;
  * GUC check hook for log_connections
  */
 bool
-check_log_connections(char **newval, void **extra, GucSource source)
+check_log_connections(const char **newval, void **extra, GucSource source)
 {
 	uint32		flags;
 	char	   *rawstring;

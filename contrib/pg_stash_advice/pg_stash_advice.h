@@ -102,10 +102,10 @@ extern void pgsa_check_stash_name(char *stash_name);
 extern void pgsa_clear_advice_string(char *stash_name, int64 queryId);
 extern void pgsa_create_stash(char *stash_name);
 extern void pgsa_drop_stash(char *stash_name);
-extern uint64 pgsa_lookup_stash_id(char *stash_name);
+extern uint64 pgsa_lookup_stash_id(const char *stash_name);
 extern void pgsa_reset_all_stashes(void);
-extern void pgsa_set_advice_string(char *stash_name, int64 queryId,
-								   char *advice_string);
+extern void pgsa_set_advice_string(const char *stash_name, int64 queryId,
+                                   char *advice_string);
 extern void pgsa_start_worker(void);
 
 #endif

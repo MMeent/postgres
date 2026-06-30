@@ -47,7 +47,7 @@ static int	auto_explain_log_format = EXPLAIN_FORMAT_TEXT;
 static int	auto_explain_log_level = LOG;
 static bool auto_explain_log_nested_statements = false;
 static double auto_explain_sample_rate = 1;
-static char *auto_explain_log_extension_options = NULL;
+static const char *auto_explain_log_extension_options = NULL;
 
 /*
  * Parsed form of one option from auto_explain.log_extension_options.
@@ -119,8 +119,8 @@ static void explain_ExecutorRun(QueryDesc *queryDesc,
 static void explain_ExecutorFinish(QueryDesc *queryDesc);
 static void explain_ExecutorEnd(QueryDesc *queryDesc);
 
-static bool check_log_extension_options(char **newval, void **extra,
-										GucSource source);
+static bool check_log_extension_options(const char **newval, void **extra,
+                                        GucSource source);
 static void assign_log_extension_options(const char *newval, void *extra);
 static void apply_extension_options(ExplainState *es,
 									auto_explain_extension_options *ext);
@@ -503,7 +503,7 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
  * GUC check hook for auto_explain.log_extension_options.
  */
 static bool
-check_log_extension_options(char **newval, void **extra, GucSource source)
+check_log_extension_options(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawstring;
 	auto_explain_extension_options *result;

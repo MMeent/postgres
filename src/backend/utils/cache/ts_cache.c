@@ -74,7 +74,7 @@ static TSConfigCacheEntry *lastUsedConfig = NULL;
 /*
  * GUC default_text_search_config, and a cache of the current config's OID
  */
-char	   *TSCurrentConfig = NULL;
+const char *TSCurrentConfig = NULL;
 
 static Oid	TSCurrentConfigCache = InvalidOid;
 
@@ -602,7 +602,7 @@ getTSCurrentConfig(bool emitError)
 
 /* GUC check_hook for default_text_search_config */
 bool
-check_default_text_search_config(char **newval, void **extra, GucSource source)
+check_default_text_search_config(const char **newval, void **extra, GucSource source)
 {
 	/*
 	 * If we aren't inside a transaction, or connected to a database, we
@@ -658,7 +658,7 @@ check_default_text_search_config(char **newval, void **extra, GucSource source)
 		ReleaseSysCache(tuple);
 
 		/* GUC wants it guc_malloc'd not palloc'd */
-		guc_free(*newval);
+		guc_free(unconstify(char *, *newval));
 		*newval = guc_strdup(LOG, buf);
 		pfree(buf);
 		if (!*newval)

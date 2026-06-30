@@ -105,7 +105,7 @@
  * Configuration options
  */
 int			Unix_socket_permissions;
-char	   *Unix_socket_group;
+const char	   *Unix_socket_group;
 
 /* Where the Unix socket files are (list of palloc'd strings) */
 static List *sock_paths = NIL;

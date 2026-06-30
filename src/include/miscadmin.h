@@ -525,9 +525,9 @@ extern PGDLLIMPORT bool IgnoreSystemIndexes;
 extern PGDLLIMPORT bool process_shared_preload_libraries_in_progress;
 extern PGDLLIMPORT bool process_shared_preload_libraries_done;
 extern PGDLLIMPORT bool process_shmem_requests_in_progress;
-extern PGDLLIMPORT char *session_preload_libraries_string;
-extern PGDLLIMPORT char *shared_preload_libraries_string;
-extern PGDLLIMPORT char *local_preload_libraries_string;
+extern PGDLLIMPORT const char *session_preload_libraries_string;
+extern PGDLLIMPORT const char *shared_preload_libraries_string;
+extern PGDLLIMPORT const char *local_preload_libraries_string;
 
 extern void CreateDataDirLockFile(bool amPostmaster);
 extern void CreateSocketLockFile(const char *socketfile, bool amPostmaster,

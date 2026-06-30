@@ -148,17 +148,17 @@ typedef struct HostsLine
 {
 	int			linenumber;
 
-	char	   *sourcefile;
-	char	   *rawline;
+	const char *sourcefile;
+	const char *rawline;
 
 	/* Required fields */
 	List	   *hostnames;
-	char	   *ssl_key;
-	char	   *ssl_cert;
+	const char *ssl_key;
+	const char *ssl_cert;
 
 	/* Optional fields */
-	char	   *ssl_ca;
-	char	   *ssl_passphrase_cmd;
+	const char *ssl_ca;
+	const char *ssl_passphrase_cmd;
 	bool		ssl_passphrase_reload;
 
 	/* Internal bookkeeping */

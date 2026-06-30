@@ -208,7 +208,7 @@ static SubTransactionId myTempNamespaceSubID = InvalidSubTransactionId;
  * This is the user's textual search path specification --- it's the value
  * of the GUC variable 'search_path'.
  */
-char	   *namespace_search_path = NULL;
+const char *namespace_search_path = NULL;
 
 
 /* Local functions */
@@ -4726,7 +4726,7 @@ ResetTempTableNamespace(void)
 
 /* check_hook: validate new search_path value */
 bool
-check_search_path(char **newval, void **extra, GucSource source)
+check_search_path(const char **newval, void **extra, GucSource source)
 {
 	Oid			roleid = InvalidOid;
 	const char *searchPath = *newval;

@@ -173,7 +173,7 @@ int			idle_replication_slot_timeout_secs = 0;
  * This GUC lists streaming replication standby server slot names that
  * logical WAL sender processes will wait for.
  */
-char	   *synchronized_standby_slots;
+const char *synchronized_standby_slots;
 
 /* This is the parsed and cached configuration for synchronized_standby_slots */
 static SyncStandbySlotsConfigData *synchronized_standby_slots_config;
@@ -3002,7 +3002,7 @@ validate_sync_standby_slots(char *rawname, List **elemlist)
  * GUC check_hook for synchronized_standby_slots
  */
 bool
-check_synchronized_standby_slots(char **newval, void **extra, GucSource source)
+check_synchronized_standby_slots(const char **newval, void **extra, GucSource source)
 {
 	char	   *rawname;
 	char	   *ptr;

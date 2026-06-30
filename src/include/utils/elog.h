@@ -491,9 +491,9 @@ typedef enum
 }			PGErrorVerbosity;
 
 extern PGDLLIMPORT int Log_error_verbosity;
-extern PGDLLIMPORT char *Log_line_prefix;
+extern PGDLLIMPORT const char *Log_line_prefix;
 extern PGDLLIMPORT int Log_destination;
-extern PGDLLIMPORT char *Log_destination_string;
+extern PGDLLIMPORT const char *Log_destination_string;
 extern PGDLLIMPORT bool syslog_sequence_numbers;
 extern PGDLLIMPORT bool syslog_split_messages;
 
