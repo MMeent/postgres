@@ -28,15 +28,6 @@
 #include "nodes/value.h"
 
 
-/* Static state for pg_strtok */
-static const char *pg_strtok_ptr = NULL;
-
-/* State flag that determines how readfuncs.c should treat location fields */
-#ifdef DEBUG_NODE_TESTS_ENABLED
-bool		restore_location_fields = false;
-#endif
-
-
 /*
  * stringToNode -
  *	  builds a Node tree from its string representation (assumed valid)
@@ -49,36 +40,22 @@ static void *
 stringToNodeInternal(const char *str, bool restore_loc_fields)
 {
 	void	   *retval;
-	const char *save_strtok;
-#ifdef DEBUG_NODE_TESTS_ENABLED
-	bool		save_restore_location_fields;
-#endif
+	ReadNodeContext ctx;
 
 	/*
-	 * We save and restore the pre-existing state of pg_strtok. This makes the
-	 * world safe for re-entrant invocation of stringToNode, without incurring
-	 * a lot of notational overhead by having to pass the next-character
-	 * pointer around through all the readfuncs.c code.
+	 * We don't have a separate type for const StringInfos, unconstify +
+	 * careful coding will have to suffice.
 	 */
-	save_strtok = pg_strtok_ptr;
-
-	pg_strtok_ptr = str;		/* point pg_strtok at the string to read */
+	ctx.str = str;
 
 	/*
 	 * If enabled, likewise save/restore the location field handling flag.
 	 */
 #ifdef DEBUG_NODE_TESTS_ENABLED
-	save_restore_location_fields = restore_location_fields;
-	restore_location_fields = restore_loc_fields;
+	ctx.restore_location_fields = restore_loc_fields;
 #endif
 
-	retval = nodeRead(NULL, 0); /* do the reading */
-
-	pg_strtok_ptr = save_strtok;
-
-#ifdef DEBUG_NODE_TESTS_ENABLED
-	restore_location_fields = save_restore_location_fields;
-#endif
+	retval = nodeRead(&ctx, NULL, 0); /* do the reading */
 
 	return retval;
 }
@@ -150,12 +127,12 @@ stringToNodeWithLocations(const char *str)
  * as a single token.
  */
 const char *
-pg_strtok(int *length)
+pg_strtok(ReadNodeContext *ctx, int *length)
 {
 	const char *local_str;		/* working pointer to string */
 	const char *ret_str;		/* start of token to return */
 
-	local_str = pg_strtok_ptr;
+	local_str = ctx->str;
 
 	while (*local_str == ' ' || *local_str == '\n' || *local_str == '\t')
 		local_str++;
@@ -163,7 +140,7 @@ pg_strtok(int *length)
 	if (*local_str == '\0')
 	{
 		*length = 0;
-		pg_strtok_ptr = local_str;
+		ctx->str = local_str;
 		return NULL;			/* no more tokens */
 	}
 
@@ -200,7 +177,7 @@ pg_strtok(int *length)
 	if (*length == 2 && ret_str[0] == '<' && ret_str[1] == '>')
 		*length = 0;
 
-	pg_strtok_ptr = local_str;
+	ctx->str = local_str;
 
 	return ret_str;
 }
@@ -317,14 +294,14 @@ nodeTokenType(const char *token, int length)
  * this should only be invoked from within a stringToNode operation).
  */
 void *
-nodeRead(const char *token, int tok_len)
+nodeRead(ReadNodeContext *ctx, const char *token, int tok_len)
 {
 	Node	   *result;
 	NodeTag		type;
 
 	if (token == NULL)			/* need to read a token? */
 	{
-		token = pg_strtok(&tok_len);
+		token = pg_strtok(ctx, &tok_len);
 
 		if (token == NULL)		/* end of input */
 			return NULL;
@@ -335,8 +312,8 @@ nodeRead(const char *token, int tok_len)
 	switch ((int) type)
 	{
 		case LEFT_BRACE:
-			result = parseNodeString();
-			token = pg_strtok(&tok_len);
+			result = parseNodeString(ctx);
+			token = pg_strtok(ctx, &tok_len);
 			if (token == NULL || token[0] != '}')
 				elog(ERROR, "did not find '}' at end of input node");
 			break;
@@ -352,7 +329,7 @@ nodeRead(const char *token, int tok_len)
 				 * or a list of nodes/values:	(node node ...)
 				 *----------
 				 */
-				token = pg_strtok(&tok_len);
+				token = pg_strtok(ctx, &tok_len);
 				if (token == NULL)
 					elog(ERROR, "unterminated List structure");
 				if (tok_len == 1 && token[0] == 'i')
@@ -363,7 +340,7 @@ nodeRead(const char *token, int tok_len)
 						int			val;
 						char	   *endptr;
 
-						token = pg_strtok(&tok_len);
+						token = pg_strtok(ctx, &tok_len);
 						if (token == NULL)
 							elog(ERROR, "unterminated List structure");
 						if (token[0] == ')')
@@ -384,7 +361,7 @@ nodeRead(const char *token, int tok_len)
 						Oid			val;
 						char	   *endptr;
 
-						token = pg_strtok(&tok_len);
+						token = pg_strtok(ctx, &tok_len);
 						if (token == NULL)
 							elog(ERROR, "unterminated List structure");
 						if (token[0] == ')')
@@ -405,7 +382,7 @@ nodeRead(const char *token, int tok_len)
 						TransactionId val;
 						char	   *endptr;
 
-						token = pg_strtok(&tok_len);
+						token = pg_strtok(ctx, &tok_len);
 						if (token == NULL)
 							elog(ERROR, "unterminated List structure");
 						if (token[0] == ')')
@@ -428,7 +405,7 @@ nodeRead(const char *token, int tok_len)
 						int			val;
 						char	   *endptr;
 
-						token = pg_strtok(&tok_len);
+						token = pg_strtok(ctx, &tok_len);
 						if (token == NULL)
 							elog(ERROR, "unterminated Bitmapset structure");
 						if (tok_len == 1 && token[0] == ')')
@@ -449,8 +426,8 @@ nodeRead(const char *token, int tok_len)
 						/* We have already scanned next token... */
 						if (token[0] == ')')
 							break;
-						l = lappend(l, nodeRead(token, tok_len));
-						token = pg_strtok(&tok_len);
+						l = lappend(l, nodeRead(ctx, token, tok_len));
+						token = pg_strtok(ctx, &tok_len);
 						if (token == NULL)
 							elog(ERROR, "unterminated List structure");
 					}

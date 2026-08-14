@@ -16,23 +16,26 @@
 
 #include "nodes/nodes.h"
 
-/*
- * variable in read.c that needs to be accessible to readfuncs.c
- */
+typedef struct ReadNodeContext
+{
+	/* the string that's being parsed */
+	const char *str;
 #ifdef DEBUG_NODE_TESTS_ENABLED
-extern PGDLLIMPORT bool restore_location_fields;
+	/* state flag determining how readfuncs.c should treat location fields */
+	bool		restore_location_fields;
 #endif
+} ReadNodeContext;
 
 /*
  * prototypes for functions in read.c (the lisp token parser)
  */
-extern const char *pg_strtok(int *length);
+extern const char *pg_strtok(ReadNodeContext *ctx, int *length);
 extern char *debackslash(const char *token, int length);
-extern void *nodeRead(const char *token, int tok_len);
+extern void *nodeRead(ReadNodeContext *ctx, const char *token, int tok_len);
 
 /*
  * prototypes for functions in readfuncs.c
  */
-extern Node *parseNodeString(void);
+extern Node *parseNodeString(ReadNodeContext *ctx);
 
 #endif							/* READFUNCS_H */
