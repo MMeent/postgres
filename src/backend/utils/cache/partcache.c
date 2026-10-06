@@ -421,9 +421,9 @@ generate_partition_qual(Relation rel)
 		List	   *partcheck;
 		MemoryContext partctx;
 
-		partctx = AllocSetContextCreate(CurrentMemoryContext,
-										"partition constraint",
-										ALLOCSET_SMALL_SIZES);
+		partctx = BumpContextCreate(CurrentMemoryContext,
+									"partition constraint",
+									ALLOCSET_SMALL_SIZES);
 		MemoryContextCopyAndSetIdentifier(partctx,
 										  RelationGetRelationName(rel));
 
