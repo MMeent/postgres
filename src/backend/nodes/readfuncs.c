@@ -235,7 +235,7 @@ _readBitmapset(ReadNodeContext *ctx)
 		val = (int) strtol(token, &endptr, 10);
 		if (endptr != token + length)
 			elog(ERROR, "unrecognized integer: \"%.*s\"", length, token);
-		result = bms_add_member(result, val);
+		result = bms_add_member_norepalloc(result, val);
 	}
 
 	return result;

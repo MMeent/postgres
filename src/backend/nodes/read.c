@@ -262,6 +262,155 @@ nodeTokenType(const char *token, int length)
 	return retval;
 }
 
+/* Read a non-empty bitmapset, or a typed List */
+static Node *
+readListLike(ReadNodeContext *ctx)
+{
+	List	   *l = NIL;
+	char		kind;
+	int			nelem;
+	int			tok_len;
+	const char *token;
+	char	   *endptr;
+	const char *startptr;
+	/*----------
+	 * Could be an integer list:	(i <int nelem> int int ...)
+	 * or an OID list:				(o <int nelem> int int ...)
+	 * or an XID list:				(x <int nelem> int int ...)
+	 * or a bitmapset:				(b <int maxval> int int ...)
+	 * or a list of nodes/values:	(n <int nelem> node node ...)
+	 *----------
+	 */
+	startptr = token = pg_strtok(ctx, &tok_len);
+	if (token == NULL)
+		elog(ERROR, "unterminated List structure");
+
+	if (tok_len != 1)
+		elog(ERROR, "unknown List type");
+
+	kind = token[0];
+
+	if (kind == 'b') /* bitmapset, with N bits */
+	{
+		Bitmapset *bms = NULL;
+
+		for (;;)
+		{
+			int			val;
+
+			token = pg_strtok(ctx, &tok_len);
+			if (token == NULL)
+				elog(ERROR, "unterminated Bitmapset structure");
+			if (tok_len == 1 && token[0] == ')')
+				break;
+			val = (int) strtol(token, &endptr, 10);
+			if (endptr != token + tok_len)
+				elog(ERROR, "unrecognized integer: \"%.*s\"",
+					 tok_len, token);
+			bms = bms_add_member_norepalloc(bms, val);
+		}
+
+		return (Node *) bms;
+	}
+
+	token = pg_strtok(ctx, &tok_len);
+	nelem = strtoint(token, &endptr, 10);
+
+	if (nelem == 0)
+		goto end_of_list;
+
+	Assert(nelem > 0);
+
+	l = palloc0( offsetof(List, initial_elements) + sizeof(ListCell) * nelem);
+	l->length = nelem;
+	l->max_length = nelem;
+	l->elements = &l->initial_elements[0];
+
+	switch (kind)
+	{
+		case 'i':
+			l->type = T_IntList;
+			break;
+		case 'o':
+			l->type = T_OidList;
+			break;
+		case 'x':
+			l->type = T_XidList;
+			break;
+		case 'n':
+			l->type = T_List;
+			break;
+		default:
+			elog(ERROR, "unknown List type '%c'", kind);
+	}
+
+	for (int i = 0; i < nelem; i++)
+	{
+		ListCell *cell = &l->initial_elements[i];
+		token = pg_strtok(ctx, &tok_len);
+
+		if (token == NULL)
+			elog(ERROR, "unterminated List structure");
+
+		if (token[0] == ')')
+			ereport(ERROR,
+					errmsg("unexpected termination of List structure"),
+					errdetail("input string = '%s'", startptr));
+
+		switch (kind)
+		{
+			case 'i':
+				{
+					int		val = (int) strtol(token, &endptr, 10);
+
+					if (endptr != token + tok_len)
+						ereport(PANIC,
+								errmsg("unrecognized integer: \"%.*s\"",
+									   tok_len, token),
+								errdetail("%s", startptr));
+					cell->int_value = val;
+					break;
+				}
+			case 'o':
+				{
+					Oid		val = (Oid) strtoul(token, &endptr, 10);
+
+					if (endptr != token + tok_len)
+						elog(ERROR, "unrecognized OID: \"%.*s\"",
+							 tok_len, token);
+					cell->oid_value = val;
+					break;
+				}
+			case 'x':
+				{
+					TransactionId val = (TransactionId) strtoul(token, &endptr, 10);
+
+					if (endptr != token + tok_len)
+						elog(ERROR, "unrecognized Xid: \"%.*s\"",
+							 tok_len, token);
+					cell->xid_value = val;
+					break;
+				}
+			case 'n':
+				{
+					cell->ptr_value = nodeRead(ctx, token, tok_len);
+					break;
+				}
+			default:
+				elog(ERROR, "unexpected list-like type '%c'", kind);
+		}
+	}
+
+end_of_list:
+	token = pg_strtok(ctx, &tok_len);
+	if (token == NULL)
+		elog(ERROR, "unterminated List structure");
+	if (token[0] != ')')
+		elog(ERROR, "unexpected continuation of List structure");
+	
+	return (Node *) l;
+}
+
 /*
  * nodeRead -
  *	  Slightly higher-level reader.
@@ -307,123 +456,8 @@ nodeRead(ReadNodeContext *ctx, const char *token, int tok_len)
 				elog(ERROR, "did not find '}' at end of input node");
 			break;
 		case LEFT_PAREN:
-			{
-				List	   *l = NIL;
-
-				/*----------
-				 * Could be an integer list:	(i int int ...)
-				 * or an OID list:				(o int int ...)
-				 * or an XID list:				(x int int ...)
-				 * or a bitmapset:				(b int int ...)
-				 * or a list of nodes/values:	(node node ...)
-				 *----------
-				 */
-				token = pg_strtok(ctx, &tok_len);
-				if (token == NULL)
-					elog(ERROR, "unterminated List structure");
-				if (tok_len == 1 && token[0] == 'i')
-				{
-					/* List of integers */
-					for (;;)
-					{
-						int			val;
-						char	   *endptr;
-
-						token = pg_strtok(ctx, &tok_len);
-						if (token == NULL)
-							elog(ERROR, "unterminated List structure");
-						if (token[0] == ')')
-							break;
-						val = (int) strtol(token, &endptr, 10);
-						if (endptr != token + tok_len)
-							elog(ERROR, "unrecognized integer: \"%.*s\"",
-								 tok_len, token);
-						l = lappend_int(l, val);
-					}
-					result = (Node *) l;
-				}
-				else if (tok_len == 1 && token[0] == 'o')
-				{
-					/* List of OIDs */
-					for (;;)
-					{
-						Oid			val;
-						char	   *endptr;
-
-						token = pg_strtok(ctx, &tok_len);
-						if (token == NULL)
-							elog(ERROR, "unterminated List structure");
-						if (token[0] == ')')
-							break;
-						val = (Oid) strtoul(token, &endptr, 10);
-						if (endptr != token + tok_len)
-							elog(ERROR, "unrecognized OID: \"%.*s\"",
-								 tok_len, token);
-						l = lappend_oid(l, val);
-					}
-					result = (Node *) l;
-				}
-				else if (tok_len == 1 && token[0] == 'x')
-				{
-					/* List of TransactionIds */
-					for (;;)
-					{
-						TransactionId val;
-						char	   *endptr;
-
-						token = pg_strtok(ctx, &tok_len);
-						if (token == NULL)
-							elog(ERROR, "unterminated List structure");
-						if (token[0] == ')')
-							break;
-						val = (TransactionId) strtoul(token, &endptr, 10);
-						if (endptr != token + tok_len)
-							elog(ERROR, "unrecognized Xid: \"%.*s\"",
-								 tok_len, token);
-						l = lappend_xid(l, val);
-					}
-					result = (Node *) l;
-				}
-				else if (tok_len == 1 && token[0] == 'b')
-				{
-					/* Bitmapset -- see also _readBitmapset() */
-					Bitmapset  *bms = NULL;
-
-					for (;;)
-					{
-						int			val;
-						char	   *endptr;
-
-						token = pg_strtok(ctx, &tok_len);
-						if (token == NULL)
-							elog(ERROR, "unterminated Bitmapset structure");
-						if (tok_len == 1 && token[0] == ')')
-							break;
-						val = (int) strtol(token, &endptr, 10);
-						if (endptr != token + tok_len)
-							elog(ERROR, "unrecognized integer: \"%.*s\"",
-								 tok_len, token);
-						bms = bms_add_member(bms, val);
-					}
-					result = (Node *) bms;
-				}
-				else
-				{
-					/* List of other node types */
-					for (;;)
-					{
-						/* We have already scanned next token... */
-						if (token[0] == ')')
-							break;
-						l = lappend(l, nodeRead(ctx, token, tok_len));
-						token = pg_strtok(ctx, &tok_len);
-						if (token == NULL)
-							elog(ERROR, "unterminated List structure");
-					}
-					result = (Node *) l;
-				}
-				break;
-			}
+			result = readListLike(ctx);
+			break;
 		case RIGHT_PAREN:
 			elog(ERROR, "unexpected right parenthesis");
 			result = NULL;		/* keep compiler happy */
@@ -468,7 +502,7 @@ nodeRead(ReadNodeContext *ctx, const char *token, int tok_len)
 			result = (Node *) makeBitString(debackslash(token, tok_len));
 			break;
 		default:
-			elog(ERROR, "unrecognized node type: %d", (int) type);
+			elog(ERROR, "unrecognized node type: %c", (int) type);
 			result = NULL;		/* keep compiler happy */
 			break;
 	}

@@ -129,6 +129,8 @@ pg_nodiscard extern Bitmapset *bms_int_members(Bitmapset *a, const Bitmapset *b)
 pg_nodiscard extern Bitmapset *bms_del_members(Bitmapset *a, const Bitmapset *b);
 pg_nodiscard extern Bitmapset *bms_join(Bitmapset *a, Bitmapset *b);
 
+pg_nodiscard extern Bitmapset *bms_add_member_norepalloc(Bitmapset *a, int x);
+
 /* support for iterating through the integer elements of a set: */
 extern int	bms_next_member(const Bitmapset *a, int prevbit);
 extern int	bms_prev_member(const Bitmapset *a, int prevbit);

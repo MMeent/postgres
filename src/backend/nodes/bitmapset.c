@@ -930,8 +930,8 @@ bms_membership(const Bitmapset *a)
  *
  * 'a' is recycled when possible.
  */
-Bitmapset *
-bms_add_member(Bitmapset *a, int x)
+static inline Bitmapset *
+bms_add_member_internal(Bitmapset *a, int x, bool allow_repalloc)
 {
 	int			wordnum,
 				bitnum;
@@ -940,17 +940,22 @@ bms_add_member(Bitmapset *a, int x)
 
 	if (x < 0)
 		elog(ERROR, "negative bitmapset member not allowed");
+
 	if (a == NULL)
 		return bms_make_singleton(x);
 
 	wordnum = WORDNUM(x);
 	bitnum = BITNUM(x);
 
+	Assert(wordnum < a->nwords || allow_repalloc);
+
 	/* enlarge the set if necessary */
 	if (wordnum >= a->nwords)
 	{
 		int			oldnwords = a->nwords;
 		int			i;
+
+		Assert(allow_repalloc);
 
 		a = (Bitmapset *) repalloc(a, BITMAPSET_SIZE(wordnum + 1));
 		a->nwords = wordnum + 1;
@@ -965,15 +970,40 @@ bms_add_member(Bitmapset *a, int x)
 	a->words[wordnum] |= ((bitmapword) 1 << bitnum);
 
 #ifdef REALLOCATE_BITMAPSETS
-
-	/*
-	 * There's no guarantee that the repalloc returned a new pointer, so copy
-	 * and free unconditionally here.
-	 */
-	a = bms_copy_and_free(a);
+	if (allow_repalloc)
+	{
+		/*
+		 * There's no guarantee that the repalloc returned a new pointer, so copy
+		 * and free unconditionally here.
+		 */
+		a = bms_copy_and_free(a);
+	}
 #endif
 
 	return a;
+}
+
+/*
+ * bms_add_member - add a specified member to set
+ *
+ * 'a' is recycled when possible.
+ */
+Bitmapset *
+bms_add_member(Bitmapset *a, int x)
+{
+	return bms_add_member_internal(a, x, true);
+}
+
+/*
+ * bms_add_member_norepalloc - add a specified member to a set
+ *
+ * The caller must guarantee that there are no reallocations.
+ */
+Bitmapset *
+bms_add_member_norepalloc(Bitmapset *a, int x)
+{
+	Assert(bms_is_empty(a) || WORDNUM(x) < a->nwords);
+	return bms_add_member_internal(a, x, false);
 }
 
 /*

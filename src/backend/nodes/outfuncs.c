@@ -282,6 +282,8 @@ _outList(StringInfo str, const List *node)
 {
 	const ListCell *lc;
 
+	Assert(list_length(node) > 0);
+
 	appendStringInfoChar(str, '(');
 
 	if (IsA(node, IntList))
@@ -290,6 +292,10 @@ _outList(StringInfo str, const List *node)
 		appendStringInfoChar(str, 'o');
 	else if (IsA(node, XidList))
 		appendStringInfoChar(str, 'x');
+	else if (IsA(node, List))
+		appendStringInfoChar(str, 'n');
+
+	appendStringInfo(str, " %d ", list_length(node));
 
 	foreach(lc, node)
 	{
@@ -322,7 +328,9 @@ _outList(StringInfo str, const List *node)
  * outBitmapset -
  *	   converts a bitmap set of integers
  *
- * Note: the output format is "(b int int ...)", similar to an integer List.
+ * Note: the output format is "(b <lastbit + 1> int int ...)", similar to an
+ * integer List.  Bits are output in reverse order to avoid having to resize
+ * the bitmapset up to N times. 
  *
  * We export this function for use by extensions that define extensible nodes.
  * That's somewhat historical, though, because calling outNode() will work.
@@ -335,8 +343,9 @@ outBitmapset(StringInfo str, const Bitmapset *bms)
 	appendStringInfoChar(str, '(');
 	appendStringInfoChar(str, 'b');
 	x = -1;
-	while ((x = bms_next_member(bms, x)) >= 0)
+	while ((x = bms_prev_member(bms, x)) >= 0)
 		appendStringInfo(str, " %d", x);
+
 	appendStringInfoChar(str, ')');
 }
 
