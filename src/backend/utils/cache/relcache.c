@@ -764,9 +764,9 @@ RelationBuildRuleLock(Relation relation)
 	/*
 	 * Make the private context.  Assume it'll not contain much data.
 	 */
-	rulescxt = AllocSetContextCreate(CacheMemoryContext,
-									 "relation rules",
-									 ALLOCSET_SMALL_SIZES);
+	rulescxt = BumpContextCreate(CacheMemoryContext,
+								 "relation rules",
+								 ALLOCSET_SMALL_SIZES);
 	relation->rd_rulescxt = rulescxt;
 	MemoryContextCopyAndSetIdentifier(rulescxt,
 									  RelationGetRelationName(relation));
@@ -880,8 +880,18 @@ RelationBuildRuleLock(Relation relation)
 
 		if (numlocks >= maxlocks)
 		{
+			RewriteRule **newrules;
+
 			maxlocks *= 2;
-			rules = repalloc_array(rules, RewriteRule *, maxlocks);
+			newrules = palloc_array(RewriteRule *, maxlocks);
+			memcpy(newrules, rules, sizeof(RewriteRule *) * numlocks);
+			/*
+			 * We explicitly leak the old rules, because this allows us to
+			 * use a Bump context.  The (at most) doubling of memory usage of
+			 * the rules allocations is more than made up by the reduced
+			 * overhead of every other object allocation in the Bump context.
+			 */
+			rules = newrules;
 		}
 		rules[numlocks++] = rule;
 	}
